@@ -1,125 +1,18 @@
-# Schwab API Configuration
+# Schwab API Library Configuration
 schwab:
   api:
-    # Your Schwab API credentials
-    client-id: "y5eXVg33MBOWWyAOkDTuNRFr35Ml1Y5p"
-    client-secret: "hy9B5A0tf7KcYE1A"
+    urls:
+      auth: "https://api.schwabapi.com/v1/oauth/authorize"
+      token: "https://api.schwabapi.com/v1/oauth/token"
+      traderBase: "https://api.schwabapi.com/trader/v1"
+      marketData: "https://api.schwabapi.com/marketdata/v1"
+    
+    defaults:
+      redirectUri: "https://127.0.0.1"
+      httpTimeoutMs: 3000
 
-    # OAuth redirect URI - must match your registered app callback URL
-    redirect-uri: "http://127.0.0.1"
-
-  # Other API endpoints
-  oauth:
-    auth-url: "https://api.schwabapi.com/v1/oauth/authorize"
-    token-url: "https://api.schwabapi.com/v1/oauth/token"
-    refresh-token-url: "https://api.schwabapi.com/v1/oauth/token"
-  
-  api-endpoints:
-    base-url: "https://api.schwabapi.com/trader/v1"
-    market-data-url: "https://api.schwabapi.com/marketdata/v1"
-    accounts-url: "https://api.schwabapi.com/accounts/v1"
-    orders-url: "https://api.schwabapi.com/trader/v1"
-    streaming-url: "wss://api.schwabapi.com/v1/ws"
-
-  # Token management
-  token:
-    token-file: "schwab-api.json"
-    refresh-token-file: "schwab-refresh-token.txt"
-
-# Schwab Test Harness Configuration
-#schwab:
-#  api:
-#    # Your Schwab API credentials - REPLACE THESE VALUES
-#    client-id: "${SCHWAB_CLIENT_ID:y5eXVg33MBOWWyAOkDTuNRFr35Ml1Y5p}"
-#    client-secret: "${SCHWAB_CLIENT_SECRET:hy9B5A0tf7KcYE1A}"
-#    
-#    # API endpoints
-#    base-url: "https://api.schwabapi.com/trader/v1"
-#    market-data-url: "https://api.schwabapi.com/marketdata/v1"
-#  
-#  oauth:
-#    # OAuth endpoints
-#    auth-url: "https://api.schwabapi.com/v1/oauth/authorize"
-#    token-url: "https://api.schwabapi.com/v1/oauth/token"
-#    
-#    # OAuth redirect URI - must match your registered app callback URL
-#    redirect-uri: "${SCHWAB_REDIRECT_URI:https://127.0.0.1}"
-#    
-#    scopes:
-#      readonly: "readonly"
-#      readwrite: "readwrite"
-#  
-#  server:
-#    # OAuth callback server configuration
-#    host: "127.0.0.1"
-#    port: 8443
-#    stop-delay: "1s"
-#  
-#  http:
-#    # HTTP client timeouts
-#    connect-timeout: "30s"
-#    read-timeout: "30s"
-#    write-timeout: "30s"
-#    debug-logging: true         # Enable debug logging for test harness
-#  
-#  token:
-#    # Token management settings
-#    refresh-buffer: "5m"
-#    default-expiry: "30m"
-#  
-#  files:
-#    # File paths for token storage
-#    token-json: "schwab_tokens.json"
-#    refresh-token: "schwab_refresh_token.txt"
-#    legacy-properties: "schwab_tokens.properties"
-#    log-directory: "logs"
-#
-## Test harness specific configuration
-#test-harness:
-#  # Interactive mode settings
-#  menu:
-#    auto-refresh-display: true
-#    show-timestamps: true
-#    
-#  # Default test symbols
-#  symbols:
-#    default: "MSFT"
-#    examples: ["AAPL", "GOOGL", "TSLA", "NVDA", "AMZN"]
-#  
-#  # Debug settings
-#  debug:
-#    verbose-errors: true
-#    show-http-details: true
-#    save-responses: false       # Save API responses to files for debugging
-#  
-#  # Output formatting
-#  display:
-#    currency-format: "USD"
-#    date-format: "yyyy-MM-dd HH:mm:ss"
-#    number-format: "#,##0.00"
-#    truncate-responses: 500     # Characters to show in response previews
-#
-## Enhanced logging configuration for test harness
-#logging:
-#  level:
-#    com.higgstx.schwab: DEBUG   # More verbose logging for test harness
-#    okhttp3: INFO               # Show HTTP requests in test harness
-#    root: INFO
-#  
-#  pattern:
-#    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n"
-#    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
-#  
-#  file:
-#    name: "logs/schwab-test-harness.log"
-#    max-size: "10MB"
-#    max-history: 30
-#    total-size-cap: "100MB"
-#
-## Spring configuration (if needed for configuration processing)
-#spring:
-#  application:
-#    name: "schwab-test-harness"
-#  
-#  main:
-#    banner-mode: "off"          # Disable Spring Boot banner for CLI app
+# Logging for the API library
+logging:
+  level:
+    com.higgstx.schwabapi: INFO
+    okhttp3: WARN

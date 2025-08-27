@@ -1,13 +1,15 @@
-package com.higgstx.schwab.service;
+package com.higgstx.schwabapi.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.higgstx.schwab.client.SchwabOAuthClient;
-import com.higgstx.schwab.model.ApiResponse;
-import com.higgstx.schwab.model.TokenResponse;
-import com.higgstx.schwab.model.market.QuoteData;
+import com.higgstx.schwabapi.config.SchwabOAuthClient;
+import com.higgstx.schwabapi.config.SchwabApiProperties;
+import com.higgstx.schwabapi.exception.SchwabApiException;
+import com.higgstx.schwabapi.model.ApiResponse;
+import com.higgstx.schwabapi.model.TokenResponse;
+import com.higgstx.schwabapi.model.market.QuoteData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,8 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Service class for market data operations using the Schwab API.
- * Handles all market data requests with automatic token management.
+ * Service class for market data operations - no credential management
  */
 public class MarketDataService implements AutoCloseable {
 
@@ -27,7 +28,16 @@ public class MarketDataService implements AutoCloseable {
     private final ObjectMapper objectMapper;
 
     public MarketDataService() {
-        this.client = new SchwabOAuthClient(true);
+        // Use the instance-based SchwabOAuthClient with default configuration
+        this.client = new SchwabOAuthClient(true); // Enable logging
+        this.objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+    }
+
+    public MarketDataService(SchwabApiProperties properties) {
+        // Use explicit configuration
+        this.client = new SchwabOAuthClient(properties, true);
         this.objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
@@ -36,8 +46,12 @@ public class MarketDataService implements AutoCloseable {
     /**
      * Gets a single quote for a ticker symbol.
      */
-    public QuoteData getQuote(String ticker) throws IOException {
-        List<QuoteData> results = getQuotes(List.of(ticker));
+    public QuoteData getQuote(String ticker) throws IOException, SchwabApiException {
+        return getQuote(ticker, TokenManager.getValidAccessToken());
+    }
+
+    public QuoteData getQuote(String ticker, String accessToken) throws IOException {
+        List<QuoteData> results = getQuotes(List.of(ticker), accessToken);
         if (results != null && !results.isEmpty()) {
             return results.get(0);
         } else {
@@ -48,8 +62,11 @@ public class MarketDataService implements AutoCloseable {
     /**
      * Gets quotes for a list of symbols
      */
-    public List<QuoteData> getQuotes(List<String> symbols) throws IOException {
-        String accessToken = TokenManager.getValidAccessToken();
+    public List<QuoteData> getQuotes(List<String> symbols) throws IOException, SchwabApiException {
+        return getQuotes(symbols, TokenManager.getValidAccessToken());
+    }
+
+    public List<QuoteData> getQuotes(List<String> symbols, String accessToken) throws IOException {
         ApiResponse response = client.getQuotes(symbols.toArray(new String[0]), accessToken);
         List<QuoteData> quoteDataList = new ArrayList<>();
 
@@ -62,18 +79,14 @@ public class MarketDataService implements AutoCloseable {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> quoteMap = (Map<String, Object>) quoteObject;
                         
-                        // Safe type casting with null checks
                         Object statusObj = quoteMap.get("status");
                         String status = statusObj != null ? statusObj.toString() : null;
                         
                         if ("SUCCESS".equals(status)) {
-                            // Safe conversion for Double values
                             Double closePrice = convertToDouble(quoteMap.get("closePrice"));
                             Double highPrice = convertToDouble(quoteMap.get("highPrice"));
                             Double lowPrice = convertToDouble(quoteMap.get("lowPrice"));
                             Double openPrice = convertToDouble(quoteMap.get("openPrice"));
-                            
-                            // Safe conversion for volume
                             Long totalVolume = convertToLong(quoteMap.get("totalVolume"));
                             
                             quoteDataList.add(QuoteData.success(symbol, closePrice, highPrice, lowPrice, openPrice, totalVolume));
@@ -93,16 +106,6 @@ public class MarketDataService implements AutoCloseable {
         } else {
             logger.error("API call failed with status code: {}", response.getStatusCode());
             String errorMessage = "API error: " + response.getStatusCode();
-            try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> errorResponse = objectMapper.readValue(response.getBody(), Map.class);
-                Object errorObj = errorResponse.get("error");
-                if (errorObj != null) {
-                    errorMessage = errorObj.toString();
-                }
-            } catch (Exception e) {
-                // Ignore parsing error, use default message
-            }
             for (String symbol : symbols) {
                 quoteDataList.add(QuoteData.error(symbol, errorMessage));
             }
@@ -111,18 +114,56 @@ public class MarketDataService implements AutoCloseable {
     }
 
     /**
-     * Safe conversion to Double
+     * Gets price history for a symbol
      */
+    public ApiResponse getPriceHistory(String symbol, int period, String periodType,
+                                     int frequency, String frequencyType) throws IOException, SchwabApiException {
+        return getPriceHistory(symbol, period, periodType, frequency, frequencyType, TokenManager.getValidAccessToken());
+    }
+
+    public ApiResponse getPriceHistory(String symbol, int period, String periodType,
+                                     int frequency, String frequencyType, String accessToken) throws IOException {
+        return client.getPriceHistory(symbol, period, periodType, frequency, frequencyType, accessToken);
+    }
+
+    /**
+     * Gets market hours for a market type
+     */
+    public ApiResponse getMarketHours(String marketType) throws IOException, SchwabApiException {
+        return getMarketHours(marketType, TokenManager.getValidAccessToken());
+    }
+
+    public ApiResponse getMarketHours(String marketType, String accessToken) throws IOException {
+        return client.getMarketHours(marketType, accessToken);
+    }
+
+    /**
+     * Check if service is ready (has valid tokens)
+     */
+    public boolean isReady() {
+        return TokenManager.hasValidTokens();
+    }
+
+    /**
+     * Get token status for debugging
+     */
+    public String getTokenStatus() {
+        try {
+            TokenResponse tokens = TokenManager.loadTokens(false);
+            if (tokens == null) {
+                return "NO TOKENS";
+            }
+            return tokens.getQuickStatus();
+        } catch (Exception e) {
+            return "ERROR: " + e.getMessage();
+        }
+    }
+
+    // Helper methods
     private Double convertToDouble(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Double) {
-            return (Double) value;
-        }
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
-        }
+        if (value == null) return null;
+        if (value instanceof Double) return (Double) value;
+        if (value instanceof Number) return ((Number) value).doubleValue();
         if (value instanceof String) {
             try {
                 return Double.parseDouble((String) value);
@@ -134,19 +175,10 @@ public class MarketDataService implements AutoCloseable {
         return null;
     }
 
-    /**
-     * Safe conversion to Long
-     */
     private Long convertToLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Long) {
-            return (Long) value;
-        }
-        if (value instanceof Number) {
-            return ((Number) value).longValue();
-        }
+        if (value == null) return null;
+        if (value instanceof Long) return (Long) value;
+        if (value instanceof Number) return ((Number) value).longValue();
         if (value instanceof String) {
             try {
                 return Long.parseLong((String) value);
@@ -156,51 +188,6 @@ public class MarketDataService implements AutoCloseable {
             }
         }
         return null;
-    }
-
-    /**
-     * Gets price history for a symbol
-     */
-    public ApiResponse getPriceHistory(String symbol, int period, String periodType,
-                                     int frequency, String frequencyType) throws IOException {
-        String accessToken = TokenManager.getValidAccessToken();
-        return client.getPriceHistory(symbol, period, periodType, frequency, frequencyType, accessToken);
-    }
-
-    /**
-     * Gets market hours for a market type
-     */
-    public ApiResponse getMarketHours(String marketType) throws IOException {
-        String accessToken = TokenManager.getValidAccessToken();
-        return client.getMarketHours(marketType, accessToken);
-    }
-
-    /**
-     * Checks if the service is ready (has valid tokens)
-     */
-    public boolean isReady() {
-        try {
-            return TokenManager.hasValidTokens() || TokenManager.hasUsableTokens();
-        } catch (Exception e) {
-            logger.error("Error checking token status: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Gets the current token status for monitoring
-     */
-    public String getTokenStatus() {
-        try {
-            TokenResponse tokens = TokenManager.loadTokens(false);
-            if (tokens != null) {
-                return tokens.getQuickStatus();
-            } else {
-                return "❌ NO TOKENS";
-            }
-        } catch (Exception e) {
-            return "❌ ERROR: " + e.getMessage();
-        }
     }
 
     @Override

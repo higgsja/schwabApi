@@ -1,4 +1,4 @@
-package com.higgstx.schwab.model;
+package com.higgstx.schwabapi.model;
 
 import java.util.Map;
 

@@ -1,6 +1,6 @@
-package com.higgstx.schwab.service;
+package com.higgstx.schwabapi.service;
 
-import com.higgstx.schwab.model.TokenResponse;
+import com.higgstx.schwabapi.model.TokenResponse;
 import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
@@ -27,6 +27,9 @@ public class SmartTokenService {
     // Background scheduler for token monitoring
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     
+    // Token manager instance
+    private final TokenManager tokenManager;
+    
     // Service state
     private boolean isMonitoringEnabled = true;
     private long monitoringIntervalMinutes = 5;
@@ -42,6 +45,7 @@ public class SmartTokenService {
      * Private constructor for singleton pattern
      */
     private SmartTokenService() {
+        this.tokenManager = new TokenManager();
         startTokenMonitoring();
     }
 
@@ -62,12 +66,12 @@ public class SmartTokenService {
     /**
      * Starts the background token monitoring and refresh task
      */
-    private void startTokenMonitoring() {
+    public void startTokenMonitoring() {
         if (isMonitoringEnabled) {
             scheduler.scheduleAtFixedRate(this::checkAndRefresh, 0, monitoringIntervalMinutes, TimeUnit.MINUTES);
-            logger.info("✅ Token monitoring started, running every {} minutes", monitoringIntervalMinutes);
+            logger.info("Token monitoring started, running every {} minutes", monitoringIntervalMinutes);
         } else {
-            logger.info("❌ Token monitoring is disabled");
+            logger.info("Token monitoring is disabled");
         }
     }
     
@@ -83,17 +87,17 @@ public class SmartTokenService {
             TokenResponse tokens = TokenManager.loadTokens(false);
             if (tokens != null) {
                 if (!tokens.isAccessTokenValid()) {
-                    logger.warn("⚠️ Access token has expired. Attempting to refresh...");
+                    logger.warn("Access token has expired. Attempting to refresh...");
                     refreshTokens();
                 } else if (tokens.willAccessTokenExpireSoon(refreshBufferMinutes * 60)) {
-                    logger.info("🔄 Access token will expire in less than {} minutes. Attempting to refresh...", refreshBufferMinutes);
+                    logger.info("Access token will expire in less than {} minutes. Attempting to refresh...", refreshBufferMinutes);
                     refreshTokens();
                 }
             } else {
-                logger.warn("❌ No tokens found. Manual authorization required.");
+                logger.warn("No tokens found. Manual authorization required.");
             }
         } catch (Exception e) {
-            logger.error("❌ Error in token monitoring: {}", e.getMessage(), e);
+            logger.error("Error in token monitoring: {}", e.getMessage(), e);
         }
     }
     
@@ -108,14 +112,14 @@ public class SmartTokenService {
             if (refreshedTokens != null) {
                 automaticRefreshCount++;
                 lastRefreshResult = "SUCCESS";
-                logger.info("✅ Token refreshed successfully via automatic process.");
+                logger.info("Token refreshed successfully via automatic process.");
             } else {
                 lastRefreshResult = "FAILURE";
-                logger.error("❌ Automatic token refresh failed. Manual re-authorization may be required.");
+                logger.error("Automatic token refresh failed. Manual re-authorization may be required.");
             }
         } catch (Exception e) {
             lastRefreshResult = "ERROR";
-            logger.error("❌ An exception occurred during automatic token refresh: {}", e.getMessage(), e);
+            logger.error("An exception occurred during automatic token refresh: {}", e.getMessage(), e);
         }
     }
     
@@ -152,6 +156,14 @@ public class SmartTokenService {
     public void shutdown() {
         logger.info("Shutting down SmartTokenService scheduler...");
         scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
     
     /**
@@ -185,19 +197,37 @@ public class SmartTokenService {
             this.refreshExpiresInSeconds = refreshExpiresInSeconds;
         }
 
+        // Getters
+        public boolean hasTokens() { return hasTokens; }
+        public boolean hasValidAccess() { return hasValidAccess; }
+        public boolean hasValidRefresh() { return hasValidRefresh; }
+        public boolean isMonitoringEnabled() { return monitoringEnabled; }
+        public int getAutomaticRefreshCount() { return automaticRefreshCount; }
+        public int getManualRefreshCount() { return manualRefreshCount; }
+        public Instant getLastRefreshAttempt() { return lastRefreshAttempt; }
+        public String getLastRefreshResult() { return lastRefreshResult; }
+        public long getAccessExpiresInSeconds() { return accessExpiresInSeconds; }
+        public long getRefreshExpiresInSeconds() { return refreshExpiresInSeconds; }
+
         /**
          * Gets overall service health status
          */
         public String getOverallStatus() {
             if (!hasTokens) {
-                return "❌ NO TOKENS";
+                return "NO TOKENS";
             } else if (hasValidAccess) {
-                return "✅ READY";
+                return "READY";
             } else if (hasValidRefresh) {
-                return "⚠️ REFRESH NEEDED";
+                return "REFRESH NEEDED";
             } else {
-                return "❌ RE-AUTH REQUIRED";
+                return "RE-AUTH REQUIRED";
             }
+        }
+        
+        @Override
+        public String toString() {
+            return String.format("TokenServiceStatus{status='%s', hasTokens=%s, hasValidAccess=%s, hasValidRefresh=%s, monitoring=%s}", 
+                    getOverallStatus(), hasTokens, hasValidAccess, hasValidRefresh, monitoringEnabled);
         }
     }
 }
