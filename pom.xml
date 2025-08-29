@@ -21,7 +21,6 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         
         <!-- Dependency versions -->
-        <!--<lombok.version>1.18.30</lombok.version>-->
         <jackson.version>2.16.1</jackson.version>
         <okhttp.version>4.12.0</okhttp.version>
         <slf4j.version>2.0.12</slf4j.version>
@@ -64,6 +63,7 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>1.18.38</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -188,11 +188,11 @@
                         <arg>-Xlint:deprecation</arg>
                     </compilerArgs>
                     <annotationProcessorPaths>
-<!--                        <path>
+                        <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>${lombok.version}</version>
-                        </path>-->
+                            <version>1.18.38</version>
+                        </path>
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
