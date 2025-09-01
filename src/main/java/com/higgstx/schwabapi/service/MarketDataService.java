@@ -116,14 +116,14 @@ public class MarketDataService implements AutoCloseable {
     /**
      * Gets price history for a symbol
      */
-    public ApiResponse getPriceHistory(String symbol, int period, String periodType,
-                                     int frequency, String frequencyType) throws IOException, SchwabApiException {
-        return getPriceHistory(symbol, period, periodType, frequency, frequencyType, TokenManager.getValidAccessToken());
+    public ApiResponse getPriceHistory(String symbol, String periodType, int period,
+                                     String frequencyType, int frequency) throws IOException, SchwabApiException {
+        return getPriceHistory(symbol, periodType, period, frequencyType, frequency, TokenManager.getValidAccessToken());
     }
 
-    public ApiResponse getPriceHistory(String symbol, int period, String periodType,
-                                     int frequency, String frequencyType, String accessToken) throws IOException {
-        return client.getPriceHistory(symbol, period, periodType, frequency, frequencyType, accessToken);
+    public ApiResponse getPriceHistory(String symbol, String periodType, int period,
+                                     String frequencyType, int frequency, String accessToken) throws IOException {
+        return client.getPriceHistory(symbol, periodType, period, frequencyType, frequency, accessToken);
     }
 
     /**
