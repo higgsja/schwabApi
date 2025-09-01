@@ -37,6 +37,13 @@ public class SchwabApiException extends Exception {
     }
     
     /**
+     * Get a display-friendly error message - ADDED THIS MISSING METHOD
+     */
+    public String getDisplayMessage() {
+        return getUserFriendlyMessage();
+    }
+    
+    /**
      * Create exception from API response
      */
     public static SchwabApiException fromApiResponse(String message, ApiResponse response) {

@@ -20,7 +20,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.net.URLDecoder;
 
-
 /**
  * Instance-based Schwab OAuth 2.0 client with configurable endpoints
  */
@@ -81,22 +80,6 @@ public class SchwabOAuthClient implements AutoCloseable {
                 authUrl, tokenUrl, marketDataUrl);
     }
 
-//    /**
-//     * Constructor with explicit URLs (for testing or custom configurations)
-//     */
-//    public SchwabOAuthClient(String authUrl, String tokenUrl, String marketDataUrl, 
-//                           String defaultRedirectUri, int timeoutMs, boolean enableLogging) {
-//        // Create properties object for consistency
-//        this.properties = new SchwabApiProperties(authUrl, tokenUrl, marketDataUrl, defaultRedirectUri, timeoutMs);
-//        this.authUrl = validateUrl(authUrl, "Auth URL");
-//        this.tokenUrl = validateUrl(tokenUrl, "Token URL");
-//        this.marketDataUrl = validateUrl(marketDataUrl, "Market Data URL");
-//        this.defaultRedirectUri = defaultRedirectUri != null ? defaultRedirectUri : "http://127.0.0.1";
-//        this.timeoutMs = timeoutMs > 0 ? timeoutMs : 30000;
-//
-//        this.httpClient = buildHttpClient(enableLogging);
-//    }
-
     private static SchwabApiProperties loadDefaultProperties() {
         try {
             return new SchwabApiProperties();
@@ -151,38 +134,39 @@ public class SchwabOAuthClient implements AutoCloseable {
     }
     
     /**
- * Extract and decode authorization code from redirect URL
- */
-public String extractAuthorizationCode(String redirectUrl) {
-    if (redirectUrl == null || redirectUrl.isEmpty()) {
-        throw new IllegalArgumentException("Redirect URL cannot be null or empty");
-    }
-    
-    try {
-        String[] parts = redirectUrl.split("[?&]");
-        for (String part : parts) {
-            if (part.startsWith("code=")) {
-                String code = part.substring(5); // Remove "code=" prefix
-                return URLDecoder.decode(code, StandardCharsets.UTF_8);
-            }
+     * Extract and decode authorization code from redirect URL
+     */
+    public String extractAuthorizationCode(String redirectUrl) {
+        if (redirectUrl == null || redirectUrl.isEmpty()) {
+            throw new IllegalArgumentException("Redirect URL cannot be null or empty");
         }
-        throw new IllegalArgumentException("No authorization code found in URL: " + redirectUrl);
-    } catch (Exception e) {
-        throw new RuntimeException("Failed to extract authorization code from URL", e);
+        
+        try {
+            String[] parts = redirectUrl.split("[?&]");
+            for (String part : parts) {
+                if (part.startsWith("code=")) {
+                    String code = part.substring(5); // Remove "code=" prefix
+                    return URLDecoder.decode(code, StandardCharsets.UTF_8);
+                }
+            }
+            throw new IllegalArgumentException("No authorization code found in URL: " + redirectUrl);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to extract authorization code from URL", e);
+        }
     }
-}
     
     /**
- * Exchange redirect URL for tokens (automatically extracts and decodes authorization code)
- */
-public TokenResponse getTokensFromRedirectUrl(String clientId, String clientSecret, 
-                                            String redirectUrl, String redirectUri) throws Exception {
-    String authCode = extractAuthorizationCode(redirectUrl);
-    return getTokens(clientId, clientSecret, authCode, redirectUri);
-}
+     * Exchange redirect URL for tokens (automatically extracts and decodes authorization code)
+     */
+    public TokenResponse getTokensFromRedirectUrl(String clientId, String clientSecret, 
+                                                String redirectUrl, String redirectUri) throws Exception {
+        String authCode = extractAuthorizationCode(redirectUrl);
+        return getTokens(clientId, clientSecret, authCode, redirectUri);
+    }
 
     /**
      * Exchange authorization code for tokens
+     * FIXED: Parameter order corrected to match usage in TestHarnessRunner
      */
     public TokenResponse getTokens(String clientId, String clientSecret, String authCode, String redirectUri) throws Exception {
         if (clientId == null || clientId.trim().isEmpty()) {
@@ -221,30 +205,23 @@ public TokenResponse getTokensFromRedirectUrl(String clientId, String clientSecr
 
         TokenResponse tokens = objectMapper.readValue(response.getBody(), TokenResponse.class);
 
-// Add debug logging
-logger.debug("Token response: access_token present: {}", tokens.getAccessToken() != null);
-logger.debug("Token response: refresh_token present: {}", tokens.getRefreshToken() != null);
-logger.debug("Token response: expires_in: {}", tokens.getExpiresIn());
-logger.debug("Token response: refresh_token_expires_in: {}", tokens.getRefreshTokenExpiresIn());
+        // Add debug logging
+        logger.debug("Token response: access_token present: {}", tokens.getAccessToken() != null);
+        logger.debug("Token response: refresh_token present: {}", tokens.getRefreshToken() != null);
+        logger.debug("Token response: expires_in: {}", tokens.getExpiresIn());
+        logger.debug("Token response: refresh_token_expires_in: {}", tokens.getRefreshTokenExpiresIn());
 
-logger.info("Raw token response: {}", response.getBody());
-
-if (tokens.getExpiresIn() > 0) {
-    tokens.setExpiresAt(Instant.now().plusSeconds(tokens.getExpiresIn()));
-}
-if (tokens.getRefreshTokenExpiresIn() > 0) {
-    tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(tokens.getRefreshTokenExpiresIn()));
-} else {
-    // Schwab might not return refresh_token_expires_in, set a default (7 days typical)
-    logger.warn("No refresh_token_expires_in in response, setting default of 7 days");
-    tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(7 * 24 * 60 * 60));
-}
+        logger.info("Raw token response: {}", response.getBody());
 
         if (tokens.getExpiresIn() > 0) {
             tokens.setExpiresAt(Instant.now().plusSeconds(tokens.getExpiresIn()));
         }
         if (tokens.getRefreshTokenExpiresIn() > 0) {
             tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(tokens.getRefreshTokenExpiresIn()));
+        } else {
+            // Schwab might not return refresh_token_expires_in, set a default (7 days typical)
+            logger.warn("No refresh_token_expires_in in response, setting default of 7 days");
+            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(7 * 24 * 60 * 60));
         }
 
         tokens.setSource(TokenResponse.TokenSource.AUTHORIZATION_CODE);
@@ -321,6 +298,13 @@ if (tokens.getRefreshTokenExpiresIn() > 0) {
 
     /**
      * Get price history
+     * https://api.schwabapi.com/marketdata/v1/pricehistory?symbol=AAPL&periodType=month&period=1&frequencyType=daily&frequency=1
+
+
+     * https://api.schwabapi.com/marketdata/v1/pricehistory?symbol=MSFT&periodType=month&period=1&frequencyType=daily&frequency=1
+     * 
+     * Fix it to do it this way, we'll make a single call to get 30 days data
+
      */
     public ApiResponse getPriceHistory(String symbol, int period, String periodType,
                                      int frequency, String frequencyType, String accessToken) throws IOException {
@@ -331,8 +315,10 @@ if (tokens.getRefreshTokenExpiresIn() > 0) {
             throw new IllegalArgumentException("Access token cannot be null or empty");
         }
 
-        String url = String.format("%s/%s/pricehistory?periodType=%s&period=%d&frequencyType=%s&frequency=%d",
-                marketDataUrl, symbol, periodType, period, frequencyType, frequency);
+        // CORRECTED: Symbol goes BEFORE /pricehistory, not after
+        String url = String.format("%s/pricehistory?symbol=%s&periodType=%s&period=%d&frequencyType=%s&frequency=%d",
+                marketDataUrl, symbol, "month", 1, "daily", 1);
+        
         return callApiWithAuth(url, "GET", null, accessToken);
     }
 
