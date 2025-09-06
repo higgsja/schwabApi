@@ -14,5 +14,5 @@ schwab:
 # Logging for the API library
 logging:
   level:
-    com.higgstx.schwabapi: INFO
+    com.higgstx.schwabapi: DEBUG
     okhttp3: WARN

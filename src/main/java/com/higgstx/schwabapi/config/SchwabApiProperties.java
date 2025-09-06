@@ -1,15 +1,15 @@
 package com.higgstx.schwabapi.config;
 
+import com.higgstx.schwabapi.util.StringUtils;
+import com.higgstx.schwabapi.util.YamlUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Instance-based configuration properties loaded from application.yml
+ * Refactored to use utility package for common operations
  */
 public class SchwabApiProperties {
     
@@ -26,21 +26,16 @@ public class SchwabApiProperties {
      * Default constructor - loads from application.yml in classpath
      */
     public SchwabApiProperties() {
-        Map<String, String> properties = loadFromApplicationYml();
+        Map<String, String> properties = YamlUtils.loadFromClasspath("application.yml");
         
-        this.authUrl = validateRequired(properties.get("auth"), "schwab.api.urls.auth");
-        this.tokenUrl = validateRequired(properties.get("token"), "schwab.api.urls.token");
-        this.marketDataUrl = validateRequired(properties.get("marketData"), "schwab.api.urls.marketData");
-        this.defaultRedirectUri = validateRequired(properties.get("redirectUri"), "schwab.api.defaults.redirectUri");
-        this.defaultScope = validateRequired(properties.get("scope"), "schwab.api.defaults.scope");
+        this.authUrl = StringUtils.validateRequired(properties.get("auth"), "schwab.api.urls.auth");
+        this.tokenUrl = StringUtils.validateRequired(properties.get("token"), "schwab.api.urls.token");
+        this.marketDataUrl = StringUtils.validateRequired(properties.get("marketData"), "schwab.api.urls.marketData");
+        this.defaultRedirectUri = StringUtils.validateRequired(properties.get("redirectUri"), "schwab.api.defaults.redirectUri");
+        this.defaultScope = StringUtils.validateRequired(properties.get("scope"), "schwab.api.defaults.scope");
         
-        this.httpTimeoutMs = Integer.parseInt(validateRequired(properties.get("httpTimeoutMs"), "schwab.api.defaults.httpTimeoutMs"));
-        
-        String timeoutStr = properties.get("httpTimeoutMs");
-//        if (timeoutStr == null) {
-//            throw new RuntimeException("Required property missing: schwab.api.defaults.httpTimeoutMs");
-//        }
-//        this.httpTimeoutMs = Integer.parseInt(timeoutStr);
+        String timeoutStr = StringUtils.validateRequired(properties.get("httpTimeoutMs"), "schwab.api.defaults.httpTimeoutMs");
+        this.httpTimeoutMs = Integer.parseInt(timeoutStr);
         
         logger.info("SchwabApiProperties loaded successfully");
     }
@@ -50,81 +45,12 @@ public class SchwabApiProperties {
      */
     public SchwabApiProperties(String authUrl, String tokenUrl, String marketDataUrl, 
                              String redirectUri, String scope, int timeoutMs) {
-        this.authUrl = validateRequired(authUrl, "authUrl");
-        this.tokenUrl = validateRequired(tokenUrl, "tokenUrl");
-        this.marketDataUrl = validateRequired(marketDataUrl, "marketDataUrl");
-        this.defaultRedirectUri = validateRequired(redirectUri, "redirectUri");
-        this.defaultScope = validateRequired(scope, "scope");
+        this.authUrl = StringUtils.validateRequired(authUrl, "authUrl");
+        this.tokenUrl = StringUtils.validateRequired(tokenUrl, "tokenUrl");
+        this.marketDataUrl = StringUtils.validateRequired(marketDataUrl, "marketDataUrl");
+        this.defaultRedirectUri = StringUtils.validateRequired(redirectUri, "redirectUri");
+        this.defaultScope = StringUtils.validateRequired(scope, "scope");
         this.httpTimeoutMs = timeoutMs;
-    }
-    
-    private String validateRequired(String value, String propertyName) {
-        if (value == null || value.trim().isEmpty()) {
-            throw new RuntimeException("Required property missing or empty: " + propertyName);
-        }
-        return value.trim();
-    }
-    
-    private static Map<String, String> loadFromApplicationYml() {
-        try (InputStream inputStream = SchwabApiProperties.class.getClassLoader()
-                .getResourceAsStream("application.yml")) {
-            
-            if (inputStream == null) {
-                throw new RuntimeException("application.yml not found in classpath");
-            }
-            
-            return parseSimpleYaml(inputStream);
-            
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to load application.yml: " + e.getMessage(), e);
-        }
-    }
-    
-    private static Map<String, String> parseSimpleYaml(InputStream inputStream) throws IOException {
-        String content = new String(inputStream.readAllBytes());
-        Map<String, String> properties = new HashMap<>();
-        
-        String[] lines = content.split("\n");
-        boolean inSchwabApiUrls = false;
-        boolean inSchwabApiDefaults = false;
-        
-        for (String line : lines) {
-            String trimmed = line.trim();
-            
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            
-            if (trimmed.equals("urls:")) {
-                inSchwabApiUrls = true;
-                inSchwabApiDefaults = false;
-                continue;
-            } else if (trimmed.equals("defaults:")) {
-                inSchwabApiUrls = false;
-                inSchwabApiDefaults = true;
-                continue;
-            } else if (!line.startsWith(" ") && line.contains(":")) {
-                inSchwabApiUrls = false;
-                inSchwabApiDefaults = false;
-                continue;
-            }
-            
-            if ((inSchwabApiUrls || inSchwabApiDefaults) && line.startsWith("      ") && line.contains(":")) {
-                String[] parts = trimmed.split(":", 2);
-                if (parts.length == 2) {
-                    String key = parts[0].trim();
-                    String value = parts[1].trim();
-                    
-                    if (value.startsWith("\"") && value.endsWith("\"")) {
-                        value = value.substring(1, value.length() - 1);
-                    }
-                    
-                    properties.put(key, value);
-                }
-            }
-        }
-        
-        return properties;
     }
     
     // Getters

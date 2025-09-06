@@ -1,5 +1,7 @@
 package com.higgstx.schwabapi.interceptor;
 
+import com.higgstx.schwabapi.util.HttpUtils;
+import com.higgstx.schwabapi.util.UtilityClass;
 import okhttp3.Interceptor;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -7,11 +9,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Retry interceptor with exponential backoff for handling transient failures.
+ * Refactored to use utility package for common operations
  */
 public class RetryInterceptor implements Interceptor {
     
@@ -66,14 +69,14 @@ public class RetryInterceptor implements Interceptor {
                 response = chain.proceed(request);
                 
                 // Check if response indicates a retryable condition
-                if (isRetryableResponse(response)) {
+                if (HttpUtils.isRetryableStatusCode(response.code())) {
                     if (attempt < maxRetries) {
                         long retryAfterMs = getRetryDelayMs(response, attempt);
                         logger.warn("Retryable response {} on attempt {}/{}, retrying in {}ms", 
                                 response.code(), attempt + 1, maxRetries + 1, retryAfterMs);
                         
                         response.close();
-                        sleep(retryAfterMs);
+                        UtilityClass.safeSleep(retryAfterMs, java.util.concurrent.TimeUnit.MILLISECONDS);
                         totalRetries.incrementAndGet();
                         continue;
                     } else {
@@ -94,10 +97,10 @@ public class RetryInterceptor implements Interceptor {
                 logger.warn("IOException on attempt {}/{}: {}", 
                         attempt + 1, maxRetries + 1, e.getMessage());
                 
-                if (attempt < maxRetries && isRetryableException(e)) {
-                    long delayMs = calculateBackoffDelay(attempt);
+                if (attempt < maxRetries && HttpUtils.isRetryableException(e)) {
+                    long delayMs = HttpUtils.calculateBackoffDelay(attempt, baseDelayMs, backoffMultiplier, maxDelayMs);
                     logger.warn("Retrying after {}ms due to: {}", delayMs, e.getMessage());
-                    sleep(delayMs);
+                    UtilityClass.safeSleep(delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
                     totalRetries.incrementAndGet();
                 } else {
                     throw e;
@@ -113,92 +116,18 @@ public class RetryInterceptor implements Interceptor {
     }
     
     /**
-     * Check if the response indicates a retryable condition
-     */
-    private boolean isRetryableResponse(Response response) {
-        int code = response.code();
-        
-        // Server errors are retryable
-        if (code >= 500) {
-            return true;
-        }
-        
-        // Rate limiting is retryable
-        if (code == 429) {
-            return true;
-        }
-        
-        // Request timeout is retryable
-        if (code == 408) {
-            return true;
-        }
-        
-        // Service unavailable
-        if (code == 503) {
-            return true;
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Check if the exception indicates a retryable condition
-     */
-    private boolean isRetryableException(IOException e) {
-        String message = e.getMessage().toLowerCase();
-        
-        // Network-related exceptions are generally retryable
-        return message.contains("timeout") || 
-               message.contains("connection") || 
-               message.contains("network") ||
-               message.contains("socket") ||
-               message.contains("host") ||
-               e instanceof java.net.SocketTimeoutException ||
-               e instanceof java.net.ConnectException ||
-               e instanceof java.net.UnknownHostException;
-    }
-    
-    /**
      * Get retry delay from response headers or calculate backoff
      */
     private long getRetryDelayMs(Response response, int attempt) {
-        // Check for Retry-After header
-        String retryAfter = response.header("Retry-After");
-        if (retryAfter != null) {
-            try {
-                long seconds = Long.parseLong(retryAfter);
-                return TimeUnit.SECONDS.toMillis(seconds);
-            } catch (NumberFormatException e) {
-                // Retry-After might be an HTTP date, but we'll just use backoff
-                logger.debug("Could not parse Retry-After header: {}", retryAfter);
-            }
+        Map<String, String> headers = HttpUtils.headersToSingleValueMap(response.headers());
+        
+        // Check for Retry-After header using utility function
+        long retryAfterSeconds = HttpUtils.getRetryAfterSeconds(headers, -1);
+        if (retryAfterSeconds > 0) {
+            return retryAfterSeconds * 1000L; // Convert to milliseconds
         }
         
-        return calculateBackoffDelay(attempt);
-    }
-    
-    /**
-     * Calculate exponential backoff delay
-     */
-    private long calculateBackoffDelay(int attempt) {
-        double delay = baseDelayMs * Math.pow(backoffMultiplier, attempt);
-        long delayMs = Math.min((long) delay, maxDelayMs);
-        
-        // Add some jitter to prevent thundering herd
-        long jitter = (long) (delayMs * 0.1 * Math.random());
-        return delayMs + jitter;
-    }
-    
-    /**
-     * Sleep for the specified duration, handling interruption
-     */
-    private void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Retry delay interrupted");
-        }
+        return HttpUtils.calculateBackoffDelay(attempt, baseDelayMs, backoffMultiplier, maxDelayMs);
     }
     
     /**

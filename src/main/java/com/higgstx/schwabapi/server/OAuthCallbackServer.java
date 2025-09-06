@@ -1,28 +1,21 @@
-//v8
 package com.higgstx.schwabapi.server;
 
+import com.higgstx.schwabapi.util.HttpUtils;
+import com.higgstx.schwabapi.util.StringUtils;
+import com.higgstx.schwabapi.util.UtilityClass;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.KeyStore;
-import java.security.cert.X509Certificate;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
  * OAuth callback server using HTTPS with self-signed certificate for Schwab API
+ * Refactored to use utility package for common operations
  */
 public class OAuthCallbackServer implements AutoCloseable {
 
@@ -40,7 +33,7 @@ public class OAuthCallbackServer implements AutoCloseable {
             // Set up self-signed SSL certificate for localhost
             setupSSL();
         } catch (Exception e) {
-            throw new IOException("Failed to setup SSL for HTTPS server: " + e.getMessage(), e);
+            throw new IOException(UtilityClass.buildErrorMessage("setup SSL for HTTPS server", e.getMessage()), e);
         }
     }
 
@@ -53,13 +46,8 @@ public class OAuthCallbackServer implements AutoCloseable {
     }
 
     private void setupSSL() throws Exception {
-        // Create a trust-all SSL context for self-signed certificates
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, new TrustManager[]{new TrustAllX509TrustManager()}, new java.security.SecureRandom());
-        
-        // Configure MockWebServer to use HTTPS
-        server.useHttps(sslContext.getSocketFactory(), false);
-        
+        // Use utility function to create trust-all SSL context
+        server.useHttps(HttpUtils.createTrustAllSSLContext().getSocketFactory(), false);
         logger.debug("SSL context configured for MockWebServer");
     }
 
@@ -139,14 +127,14 @@ public class OAuthCallbackServer implements AutoCloseable {
 
         try {
             // Handle any request to root or with parameters as potential OAuth callback
-            if (path != null) {
+            if (StringUtils.hasContent(path)) {
                 logger.debug("Full request details - Path: '{}', Query: '{}'", path, 
                     path.contains("?") ? path.substring(path.indexOf("?") + 1) : "none");
                 
                 if (path.contains("code=")) {
                     logger.info("Found authorization code parameter in request");
-                    String authCode = extractAuthCode(path);
-                    if (authCode != null && !authCode.isEmpty()) {
+                    String authCode = StringUtils.extractAuthorizationCode(path);
+                    if (StringUtils.hasContent(authCode)) {
                         logger.info("Successfully extracted authorization code: {}...", 
                             authCode.substring(0, Math.min(10, authCode.length())));
                         authCodeFuture.complete(authCode);
@@ -156,7 +144,7 @@ public class OAuthCallbackServer implements AutoCloseable {
                     }
                 } else if (path.contains("error=")) {
                     logger.warn("OAuth error found in callback");
-                    String error = extractErrorInfo(path);
+                    String error = StringUtils.extractErrorInfo(path);
                     logger.error("OAuth error received: {}", error);
                     authCodeFuture.completeExceptionally(new RuntimeException("OAuth error: " + error));
                     return;
@@ -171,55 +159,6 @@ public class OAuthCallbackServer implements AutoCloseable {
         } catch (Exception e) {
             logger.error("Exception while processing OAuth callback: {}", e.getMessage(), e);
             authCodeFuture.completeExceptionally(e);
-        }
-    }
-
-    private String extractAuthCode(String path) {
-        try {
-            if (path == null || !path.contains("?")) {
-                return null;
-            }
-
-            String query = path.substring(path.indexOf("?") + 1);
-            String[] params = query.split("&");
-            
-            for (String param : params) {
-                String[] pair = param.split("=", 2);
-                if (pair.length == 2 && "code".equals(pair[0])) {
-                    return URLDecoder.decode(pair[1], StandardCharsets.UTF_8);
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error parsing authorization code from path '{}': {}", path, e.getMessage());
-        }
-        return null;
-    }
-
-    private String extractErrorInfo(String path) {
-        try {
-            if (path == null || !path.contains("?")) {
-                return "Unknown error";
-            }
-
-            String query = path.substring(path.indexOf("?") + 1);
-            String[] params = query.split("&");
-            StringBuilder errorInfo = new StringBuilder();
-
-            for (String param : params) {
-                String[] pair = param.split("=", 2);
-                if (pair.length == 2 && (pair[0].equals("error") || pair[0].equals("error_description"))) {
-                    if (errorInfo.length() > 0) {
-                        errorInfo.append(", ");
-                    }
-                    errorInfo.append(pair[0]).append("=").append(URLDecoder.decode(pair[1], StandardCharsets.UTF_8));
-                }
-            }
-
-            return errorInfo.length() > 0 ? errorInfo.toString() : "Unknown error";
-
-        } catch (Exception e) {
-            logger.error("Error parsing error info from path '{}': {}", path, e.getMessage());
-            return "Error parsing error information";
         }
     }
 
@@ -283,21 +222,6 @@ public class OAuthCallbackServer implements AutoCloseable {
             } catch (Exception e) {
                 logger.warn("Warning during server shutdown: {}", e.getMessage());
             }
-        }
-    }
-
-    private static class TrustAllX509TrustManager implements X509TrustManager {
-        @Override
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
-
-        @Override
-        public void checkClientTrusted(X509Certificate[] certs, String authType) {
-        }
-
-        @Override
-        public void checkServerTrusted(X509Certificate[] certs, String authType) {
         }
     }
 

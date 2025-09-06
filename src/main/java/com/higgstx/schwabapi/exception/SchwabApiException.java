@@ -1,8 +1,9 @@
 package com.higgstx.schwabapi.exception;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.higgstx.schwabapi.model.ApiResponse;
+import com.higgstx.schwabapi.util.HttpUtils;
+import com.higgstx.schwabapi.util.JsonUtils;
+import com.higgstx.schwabapi.util.UtilityClass;
 import lombok.Getter;
 
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.Map;
 
 /**
  * Custom exception for Schwab API errors with enhanced error handling and retry logic.
+ * Refactored to use utility package for common operations
  */
 @Getter
 public class SchwabApiException extends Exception {
@@ -18,7 +20,6 @@ public class SchwabApiException extends Exception {
     private final String errorCode;
     private final Map<String, Object> errorDetails;
     private final long responseTime;
-    private static final ObjectMapper objectMapper = new ObjectMapper();
     
     public SchwabApiException(int statusCode, String message, String errorCode, Map<String, Object> details, Throwable cause) {
         super(message, cause);
@@ -37,7 +38,7 @@ public class SchwabApiException extends Exception {
     }
     
     /**
-     * Get a display-friendly error message - ADDED THIS MISSING METHOD
+     * Get a display-friendly error message
      */
     public String getDisplayMessage() {
         return getUserFriendlyMessage();
@@ -47,33 +48,11 @@ public class SchwabApiException extends Exception {
      * Create exception from API response
      */
     public static SchwabApiException fromApiResponse(String message, ApiResponse response) {
-        Map<String, Object> details = new HashMap<>();
-        String errorCode = "HTTP_" + response.getStatusCode();
+        Map<String, Object> details = JsonUtils.extractErrorDetails(response.getBody(), UtilityClass.getObjectMapper());
         
-        try {
-            // Try to parse error details from response body
-            if (response.getBody() != null && !response.getBody().isEmpty()) {
-                JsonNode errorJson = objectMapper.readTree(response.getBody());
-                
-                if (errorJson.has("error")) {
-                    errorCode = errorJson.get("error").asText();
-                }
-                
-                if (errorJson.has("error_description")) {
-                    details.put("description", errorJson.get("error_description").asText());
-                }
-                
-                if (errorJson.has("message")) {
-                    details.put("message", errorJson.get("message").asText());
-                }
-                
-                if (errorJson.has("errors")) {
-                    details.put("errors", errorJson.get("errors"));
-                }
-            }
-        } catch (Exception e) {
-            // If JSON parsing fails, store raw response
-            details.put("raw_response", response.getBody());
+        String errorCode = "HTTP_" + response.getStatusCode();
+        if (details.containsKey("error")) {
+            errorCode = details.get("error").toString();
         }
         
         // Add response metadata
@@ -81,59 +60,36 @@ public class SchwabApiException extends Exception {
         details.put("response_time_ms", response.getResponseTimeMillis());
         details.put("headers", response.getHeaders());
         
+        String errorMessage = JsonUtils.extractErrorMessage(response.getBody(), UtilityClass.getObjectMapper());
+        
         return new SchwabApiException(
             response.getStatusCode(),
-            message + ": " + getErrorMessage(response),
+            UtilityClass.buildErrorMessage(message, errorMessage),
             errorCode,
             details,
             response.getResponseTimeMillis()
         );
     }
     
-    private static String getErrorMessage(ApiResponse response) {
-        try {
-            if (response.getBody() != null && !response.getBody().isEmpty()) {
-                JsonNode errorJson = objectMapper.readTree(response.getBody());
-                
-                if (errorJson.has("error_description")) {
-                    return errorJson.get("error_description").asText();
-                }
-                
-                if (errorJson.has("message")) {
-                    return errorJson.get("message").asText();
-                }
-                
-                if (errorJson.has("error")) {
-                    return errorJson.get("error").asText();
-                }
-            }
-        } catch (Exception e) {
-            // Ignore parsing errors
-        }
-        
-        return "HTTP " + response.getStatusCode();
-    }
-    
     /**
      * Check if this error is retryable
      */
     public boolean isRetryable() {
-        // Retry on server errors (5xx) or rate limiting (429)
-        return statusCode >= 500 || statusCode == 429 || statusCode == 408; // Request timeout
+        return HttpUtils.isRetryableStatusCode(statusCode);
     }
     
     /**
      * Check if this is an authentication/authorization error
      */
     public boolean isAuthError() {
-        return statusCode == 401 || statusCode == 403;
+        return HttpUtils.isAuthError(statusCode);
     }
     
     /**
      * Check if this is a client error (4xx, but not auth or rate limit)
      */
     public boolean isClientError() {
-        return statusCode >= 400 && statusCode < 500 && statusCode != 401 && statusCode != 403 && statusCode != 429;
+        return HttpUtils.isClientError(statusCode) && !isAuthError() && !isRateLimited();
     }
     
     /**
@@ -149,15 +105,13 @@ public class SchwabApiException extends Exception {
     public long getRetryAfterSeconds() {
         Object retryAfter = errorDetails.get("Retry-After");
         if (retryAfter instanceof String) {
-            try {
-                return Long.parseLong((String) retryAfter);
-            } catch (NumberFormatException e) {
-                // Try parsing as HTTP date - simplified approach
-                return 60; // Default to 1 minute
-            }
+            return HttpUtils.getRetryAfterSeconds(Map.of("Retry-After", (String) retryAfter), getDefaultRetrySeconds());
         }
         
-        // Default retry times based on error type
+        return getDefaultRetrySeconds();
+    }
+    
+    private long getDefaultRetrySeconds() {
         if (isRateLimited()) {
             return 60; // Wait 1 minute for rate limits
         } else if (statusCode >= 500) {
@@ -196,9 +150,9 @@ public class SchwabApiException extends Exception {
             return ErrorCategory.AUTHENTICATION;
         } else if (isRateLimited()) {
             return ErrorCategory.RATE_LIMIT;
-        } else if (statusCode >= 500) {
+        } else if (HttpUtils.isServerError(statusCode)) {
             return ErrorCategory.SERVER_ERROR;
-        } else if (statusCode >= 400) {
+        } else if (HttpUtils.isClientError(statusCode)) {
             return ErrorCategory.CLIENT_ERROR;
         } else if (statusCode == 0) {
             return ErrorCategory.NETWORK_ERROR;
@@ -233,11 +187,11 @@ public class SchwabApiException extends Exception {
      * Get severity level for logging/monitoring
      */
     public Severity getSeverity() {
-        if (statusCode >= 500) {
+        if (HttpUtils.isServerError(statusCode)) {
             return Severity.ERROR;
         } else if (isAuthError() || statusCode == 429) {
             return Severity.WARNING;
-        } else if (statusCode >= 400) {
+        } else if (HttpUtils.isClientError(statusCode)) {
             return Severity.INFO;
         } else {
             return Severity.DEBUG;
@@ -262,20 +216,14 @@ public class SchwabApiException extends Exception {
      * Get recommended action based on error type
      */
     public String getRecommendedAction() {
-        switch (getErrorCategory()) {
-            case AUTHENTICATION:
-                return "Check credentials and token validity. Re-authenticate if necessary.";
-            case RATE_LIMIT:
-                return "Reduce request frequency. Wait " + getRetryAfterSeconds() + " seconds before retrying.";
-            case CLIENT_ERROR:
-                return "Check request parameters and API documentation.";
-            case SERVER_ERROR:
-                return "Retry after " + getRetryAfterSeconds() + " seconds. Check Schwab API status.";
-            case NETWORK_ERROR:
-                return "Check network connectivity and DNS resolution.";
-            default:
-                return "Review error details and contact support if issue persists.";
-        }
+        return switch (getErrorCategory()) {
+            case AUTHENTICATION -> "Check credentials and token validity. Re-authenticate if necessary.";
+            case RATE_LIMIT -> "Reduce request frequency. Wait " + getRetryAfterSeconds() + " seconds before retrying.";
+            case CLIENT_ERROR -> "Check request parameters and API documentation.";
+            case SERVER_ERROR -> "Retry after " + getRetryAfterSeconds() + " seconds. Check Schwab API status.";
+            case NETWORK_ERROR -> "Check network connectivity and DNS resolution.";
+            default -> "Review error details and contact support if issue persists.";
+        };
     }
     
     /**
@@ -414,20 +362,14 @@ public class SchwabApiException extends Exception {
      * Get a user-friendly error message
      */
     public String getUserFriendlyMessage() {
-        switch (getErrorCategory()) {
-            case AUTHENTICATION:
-                return "Authentication failed. Please check your credentials and try again.";
-            case RATE_LIMIT:
-                return "Too many requests. Please wait a moment and try again.";
-            case CLIENT_ERROR:
-                return "Invalid request. Please check your input and try again.";
-            case SERVER_ERROR:
-                return "Service temporarily unavailable. Please try again later.";
-            case NETWORK_ERROR:
-                return "Network connection error. Please check your internet connection.";
-            default:
-                return "An unexpected error occurred. Please try again or contact support.";
-        }
+        return switch (getErrorCategory()) {
+            case AUTHENTICATION -> "Authentication failed. Please check your credentials and try again.";
+            case RATE_LIMIT -> "Too many requests. Please wait a moment and try again.";
+            case CLIENT_ERROR -> "Invalid request. Please check your input and try again.";
+            case SERVER_ERROR -> "Service temporarily unavailable. Please try again later.";
+            case NETWORK_ERROR -> "Network connection error. Please check your internet connection.";
+            default -> "An unexpected error occurred. Please try again or contact support.";
+        };
     }
     
     /**

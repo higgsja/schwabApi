@@ -1,5 +1,7 @@
 package com.higgstx.schwabapi.interceptor;
 
+import com.higgstx.schwabapi.util.HttpUtils;
+import com.higgstx.schwabapi.util.UtilityClass;
 import okhttp3.Interceptor;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -15,6 +17,7 @@ import java.util.HashMap;
 
 /**
  * Metrics interceptor to collect HTTP request statistics and performance data.
+ * Refactored to use utility package for common operations
  */
 public class MetricsInterceptor implements Interceptor {
     
@@ -40,19 +43,19 @@ public class MetricsInterceptor implements Interceptor {
     public Response intercept(Chain chain) throws IOException {
         Request request = chain.request();
         String endpoint = getEndpointKey(request);
-        long startTime = System.currentTimeMillis();
+        UtilityClass.MetricsContext metrics = UtilityClass.createMetricsContext(endpoint);
         
         totalRequests.incrementAndGet();
         
         try {
             Response response = chain.proceed(request);
-            long responseTime = System.currentTimeMillis() - startTime;
+            long responseTime = metrics.getElapsedMillis();
             
             recordSuccess(endpoint, response.code(), responseTime);
             return response;
             
         } catch (IOException e) {
-            long responseTime = System.currentTimeMillis() - startTime;
+            long responseTime = metrics.getElapsedMillis();
             recordError(endpoint, e, responseTime);
             throw e;
         }
@@ -73,7 +76,7 @@ public class MetricsInterceptor implements Interceptor {
         getEndpointMetrics(endpoint).recordSuccess(statusCode, responseTime);
         
         // Track errors (4xx and 5xx as errors)
-        if (statusCode >= 400) {
+        if (!HttpUtils.isSuccessCode(statusCode)) {
             totalErrors.incrementAndGet();
         }
         
@@ -101,7 +104,7 @@ public class MetricsInterceptor implements Interceptor {
      * Update min/max response times atomically
      */
     private void updateMinMax(long responseTime) {
-        // Update minimum
+        // Update minimum using utility clamp function
         long currentMin = minResponseTime.get();
         while (responseTime < currentMin) {
             if (minResponseTime.compareAndSet(currentMin, responseTime)) {
@@ -166,7 +169,8 @@ public class MetricsInterceptor implements Interceptor {
         metrics.put("total_requests", requests);
         metrics.put("total_errors", totalErrors.get());
         metrics.put("network_errors", networkErrors.get());
-        metrics.put("success_rate", requests > 0 ? 1.0 - (double) totalErrors.get() / requests : 1.0);
+        metrics.put("success_rate", requests > 0 ? 
+                UtilityClass.calculatePercentage(requests - totalErrors.get(), requests) / 100.0 : 1.0);
         
         // Response time metrics
         if (requests > 0) {
@@ -221,11 +225,11 @@ public class MetricsInterceptor implements Interceptor {
         
         long totalTime = totalResponseTime.get();
         long errors = totalErrors.get();
-        double successRate = 1.0 - (double) errors / requests;
+        double successRate = UtilityClass.calculatePercentage(requests - errors, requests);
         
         return String.format(
             "API Metrics: %d requests, %.1f%% success rate, avg %.0fms response time, %d errors",
-            requests, successRate * 100, (double) totalTime / requests, errors
+            requests, successRate, (double) totalTime / requests, errors
         );
     }
     
@@ -243,7 +247,7 @@ public class MetricsInterceptor implements Interceptor {
             totalResponseTime.addAndGet(responseTime);
             statusCodes.computeIfAbsent(statusCode, k -> new LongAdder()).increment();
             
-            if (statusCode >= 400) {
+            if (!HttpUtils.isSuccessCode(statusCode)) {
                 errors.incrementAndGet();
             }
         }
@@ -260,7 +264,8 @@ public class MetricsInterceptor implements Interceptor {
             
             map.put("requests", requestCount);
             map.put("errors", errors.get());
-            map.put("success_rate", requestCount > 0 ? 1.0 - (double) errors.get() / requestCount : 1.0);
+            map.put("success_rate", requestCount > 0 ? 
+                    UtilityClass.calculatePercentage(requestCount - errors.get(), requestCount) / 100.0 : 1.0);
             map.put("avg_response_time_ms", requestCount > 0 ? totalResponseTime.get() / requestCount : 0);
             
             Map<String, Long> statusCodeMap = new HashMap<>();

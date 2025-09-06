@@ -1,36 +1,23 @@
 package com.higgstx.schwabapi.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.higgstx.schwabapi.model.ApiResponse;
 import com.higgstx.schwabapi.model.TokenResponse;
+import com.higgstx.schwabapi.util.*;
 import okhttp3.*;
-import okhttp3.logging.HttpLoggingInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import java.net.URLDecoder;
 
 /**
  * Instance-based Schwab OAuth 2.0 client with configurable endpoints
+ * Refactored to use utility package for common operations
  */
-public class SchwabOAuthClient implements AutoCloseable
-{
+public class SchwabOAuthClient implements AutoCloseable {
 
-    private static final Logger logger = LoggerFactory.getLogger(
-            SchwabOAuthClient.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper()
-            .registerModule(new JavaTimeModule())
-            .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
+    private static final Logger logger = LoggerFactory.getLogger(SchwabOAuthClient.class);
 
     private final SchwabApiProperties properties;
     private final String authUrl;
@@ -43,191 +30,103 @@ public class SchwabOAuthClient implements AutoCloseable
     /**
      * Default constructor - loads configuration from application.yml
      */
-    public SchwabOAuthClient()
-    {
+    public SchwabOAuthClient() {
         this(loadDefaultProperties(), false);
     }
 
     /**
      * Constructor with logging option - loads configuration from application.yml
      */
-    public SchwabOAuthClient(boolean enableLogging)
-    {
+    public SchwabOAuthClient(boolean enableLogging) {
         this(loadDefaultProperties(), enableLogging);
     }
 
     /**
      * Constructor with explicit configuration
      */
-    public SchwabOAuthClient(SchwabApiProperties properties)
-    {
+    public SchwabOAuthClient(SchwabApiProperties properties) {
         this(properties, false);
     }
 
     /**
      * Constructor with explicit configuration and logging option
      */
-    public SchwabOAuthClient(SchwabApiProperties properties,
-            boolean enableLogging)
-    {
-        if (properties == null)
-        {
-            throw new IllegalArgumentException(
-                    "SchwabApiProperties cannot be null");
-        }
+    public SchwabOAuthClient(SchwabApiProperties properties, boolean enableLogging) {
+        UtilityClass.validateNotNull(properties, "SchwabApiProperties");
 
         this.properties = properties;
-        this.authUrl = validateUrl(properties.getAuthUrl(), "Auth URL");
-        this.tokenUrl = validateUrl(properties.getTokenUrl(), "Token URL");
-        this.marketDataUrl = validateUrl(properties.getMarketDataUrl(),
-                "Market Data URL");
+        this.authUrl = StringUtils.validateUrl(properties.getAuthUrl(), "Auth URL");
+        this.tokenUrl = StringUtils.validateUrl(properties.getTokenUrl(), "Token URL");
+        this.marketDataUrl = StringUtils.validateUrl(properties.getMarketDataUrl(), "Market Data URL");
         this.defaultRedirectUri = properties.getDefaultRedirectUri();
         this.timeoutMs = properties.getHttpTimeoutMs();
 
-        this.httpClient = buildHttpClient(enableLogging);
+        this.httpClient = HttpUtils.buildHttpClient(timeoutMs, enableLogging);
 
-        logger.debug(
-                "SchwabOAuthClient initialized with authUrl: {}, tokenUrl: {}, marketDataUrl: {}",
+        logger.debug("SchwabOAuthClient initialized with authUrl: {}, tokenUrl: {}, marketDataUrl: {}",
                 authUrl, tokenUrl, marketDataUrl);
     }
 
-    private static SchwabApiProperties loadDefaultProperties()
-    {
-        try
-        {
+    private static SchwabApiProperties loadDefaultProperties() {
+        try {
             return new SchwabApiProperties();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load default Schwab API properties from application.yml", e);
         }
-        catch (Exception e)
-        {
-            throw new RuntimeException(
-                    "Failed to load default Schwab API properties from application.yml",
-                    e);
-        }
-    }
-
-    private String validateUrl(String url, String name)
-    {
-        if (url == null || url.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(name + " cannot be null or empty");
-        }
-        return url.trim();
-    }
-
-    private OkHttpClient buildHttpClient(boolean enableLogging)
-    {
-        OkHttpClient.Builder builder = new OkHttpClient.Builder()
-                .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
-                .readTimeout(timeoutMs, TimeUnit.MILLISECONDS);
-
-        if (enableLogging)
-        {
-            HttpLoggingInterceptor logging = new HttpLoggingInterceptor(
-                    message -> logger.debug(message));
-            logging.setLevel(HttpLoggingInterceptor.Level.BODY);
-            builder.addInterceptor(logging);
-        }
-
-        return builder.build();
     }
 
     /**
      * Build authorization URL with default scope
      */
-    public String buildAuthorizationUrl(String clientId, String redirectUri)
-    {
+    public String buildAuthorizationUrl(String clientId, String redirectUri) {
         return buildAuthorizationUrl(clientId, redirectUri, null);
     }
 
     /**
      * Build authorization URL with custom scope
      */
-    public String buildAuthorizationUrl(String clientId, String redirectUri,
-            String scope)
-    {
-        if (clientId == null || clientId.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Client ID cannot be null or empty");
-        }
+    public String buildAuthorizationUrl(String clientId, String redirectUri, String scope) {
+        UtilityClass.validateParameter(clientId, "Client ID");
 
-        String uri = redirectUri != null ? redirectUri : defaultRedirectUri;
-        String scopeParam = scope != null ? scope : properties.getDefaultScope();
+        String uri = StringUtils.hasContent(redirectUri) ? redirectUri : defaultRedirectUri;
+        String scopeParam = StringUtils.hasContent(scope) ? scope : properties.getDefaultScope();
 
-        return String.format(
-                "%s?response_type=code&client_id=%s&redirect_uri=%s&scope=%s",
-                authUrl, clientId,
-                URLEncoder.encode(uri, StandardCharsets.UTF_8),
-                URLEncoder.encode(scopeParam, StandardCharsets.UTF_8));
+        return String.format("%s?response_type=code&client_id=%s&redirect_uri=%s&scope=%s",
+                authUrl, 
+                clientId,
+                StringUtils.urlEncode(uri),
+                StringUtils.urlEncode(scopeParam));
     }
 
     /**
      * Extract and decode authorization code from redirect URL
      */
-    public String extractAuthorizationCode(String redirectUrl)
-    {
-        if (redirectUrl == null || redirectUrl.isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Redirect URL cannot be null or empty");
-        }
-
-        try
-        {
-            String[] parts = redirectUrl.split("[?&]");
-            for (String part : parts)
-            {
-                if (part.startsWith("code="))
-                {
-                    String code = part.substring(5); // Remove "code=" prefix
-                    return URLDecoder.decode(code, StandardCharsets.UTF_8);
-                }
-            }
-            throw new IllegalArgumentException(
-                    "No authorization code found in URL: " + redirectUrl);
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(
-                    "Failed to extract authorization code from URL", e);
-        }
+    public String extractAuthorizationCode(String redirectUrl) {
+        return StringUtils.extractAuthorizationCode(redirectUrl);
     }
 
     /**
      * Exchange redirect URL for tokens (automatically extracts and decodes authorization code)
      */
-    public TokenResponse getTokensFromRedirectUrl(String clientId,
-            String clientSecret,
-            String redirectUrl, String redirectUri) throws Exception
-    {
+    public TokenResponse getTokensFromRedirectUrl(String clientId, String clientSecret,
+                                                String redirectUrl, String redirectUri) throws Exception {
         String authCode = extractAuthorizationCode(redirectUrl);
         return getTokens(clientId, clientSecret, authCode, redirectUri);
     }
 
     /**
      * Exchange authorization code for tokens
-     * FIXED: Parameter order corrected to match usage in TestHarnessRunner
      */
-    public TokenResponse getTokens(String clientId, String clientSecret,
-            String authCode, String redirectUri) throws Exception
-    {
-        if (clientId == null || clientId.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Client ID cannot be null or empty");
-        }
-        if (clientSecret == null || clientSecret.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Client secret cannot be null or empty");
-        }
-        if (authCode == null || authCode.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Authorization code cannot be null or empty");
-        }
+    public TokenResponse getTokens(String clientId, String clientSecret, String authCode, String redirectUri) 
+            throws Exception {
+        
+        UtilityClass.logMethodEntry("SchwabOAuthClient", "getTokens", clientId, "***", "***", redirectUri);
+        
+        UtilityClass.validateParameter(clientId, "Client ID");
+        UtilityClass.validateParameter(clientSecret, "Client secret");
+        UtilityClass.validateParameter(authCode, "Authorization code");
 
-        String uri = redirectUri != null ? redirectUri : defaultRedirectUri;
+        String uri = StringUtils.hasContent(redirectUri) ? redirectUri : defaultRedirectUri;
 
         RequestBody formBody = new FormBody.Builder()
                 .add("grant_type", "authorization_code")
@@ -235,8 +134,7 @@ public class SchwabOAuthClient implements AutoCloseable
                 .add("redirect_uri", uri)
                 .build();
 
-        String basicAuth = Base64.getEncoder().encodeToString(
-                (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
+        String basicAuth = HttpUtils.createBasicAuthHeader(clientId, clientSecret);
 
         Request request = new Request.Builder()
                 .url(tokenUrl)
@@ -247,81 +145,57 @@ public class SchwabOAuthClient implements AutoCloseable
 
         ApiResponse response = callApi(request);
 
-        if (response.getStatusCode() != 200)
-        {
-            throw new IOException("Failed to get tokens. HTTP " + response.
-                    getStatusCode() + ": " + response.getBody());
+        if (!HttpUtils.isSuccessCode(response.getStatusCode())) {
+            throw new IOException(UtilityClass.buildErrorMessage("get tokens", 
+                "HTTP " + response.getStatusCode() + ": " + response.getBody()));
         }
 
-        TokenResponse tokens = objectMapper.readValue(response.getBody(),
-                TokenResponse.class);
+        TokenResponse tokens = UtilityClass.getObjectMapper().readValue(response.getBody(), TokenResponse.class);
 
         // Add debug logging
-        logger.debug("Token response: access_token present: {}", tokens.
-                getAccessToken() != null);
-        logger.debug("Token response: refresh_token present: {}", tokens.
-                getRefreshToken() != null);
+        logger.debug("Token response: access_token present: {}", tokens.getAccessToken() != null);
+        logger.debug("Token response: refresh_token present: {}", tokens.getRefreshToken() != null);
         logger.debug("Token response: expires_in: {}", tokens.getExpiresIn());
-        logger.debug("Token response: refresh_token_expires_in: {}", tokens.
-                getRefreshTokenExpiresIn());
+        logger.debug("Token response: refresh_token_expires_in: {}", tokens.getRefreshTokenExpiresIn());
 
         logger.info("Raw token response: {}", response.getBody());
 
-        if (tokens.getExpiresIn() > 0)
-        {
-            tokens.
-                    setExpiresAt(Instant.now().
-                            plusSeconds(tokens.getExpiresIn()));
+        // Set expiration times using utility functions
+        if (tokens.getExpiresIn() > 0) {
+            tokens.setExpiresAt(Instant.now().plusSeconds(tokens.getExpiresIn()));
         }
-        if (tokens.getRefreshTokenExpiresIn() > 0)
-        {
-            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(tokens.
-                    getRefreshTokenExpiresIn()));
-        }
-        else
-        {
+        
+        if (tokens.getRefreshTokenExpiresIn() > 0) {
+            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(tokens.getRefreshTokenExpiresIn()));
+        } else {
             // Schwab might not return refresh_token_expires_in, set a default (7 days typical)
-            logger.warn(
-                    "No refresh_token_expires_in in response, setting default of 7 days");
-            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(
-                    7 * 24 * 60 * 60));
+            logger.debug("No refresh_token_expires_in in response, setting default of 7 days. Normal behavior for schwab.");
+            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(7 * 24 * 60 * 60));
         }
 
         tokens.setSource(TokenResponse.TokenSource.AUTHORIZATION_CODE);
-        tokens.setIssuedAt(Instant.now());
+        tokens.setIssuedAt(UtilityClass.now());
 
+        UtilityClass.logMethodExit("SchwabOAuthClient", "getTokens", "TokenResponse[valid=" + tokens.isAccessTokenValid() + "]");
         return tokens;
     }
 
     /**
      * Refresh tokens
      */
-    public TokenResponse refreshTokens(String clientId, String clientSecret,
-            String refreshToken) throws Exception
-    {
-        if (clientId == null || clientId.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Client ID cannot be null or empty");
-        }
-        if (clientSecret == null || clientSecret.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Client secret cannot be null or empty");
-        }
-        if (refreshToken == null || refreshToken.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Refresh token cannot be null or empty");
-        }
+    public TokenResponse refreshTokens(String clientId, String clientSecret, String refreshToken) throws Exception {
+        UtilityClass.logMethodEntry("SchwabOAuthClient", "refreshTokens", clientId, "***", "***");
+        
+        UtilityClass.validateParameter(clientId, "Client ID");
+        UtilityClass.validateParameter(clientSecret, "Client secret");
+        UtilityClass.validateParameter(refreshToken, "Refresh token");
 
         RequestBody formBody = new FormBody.Builder()
                 .add("grant_type", "refresh_token")
                 .add("refresh_token", refreshToken)
                 .build();
 
-        String basicAuth = Base64.getEncoder().encodeToString(
-                (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
+        String basicAuth = HttpUtils.createBasicAuthHeader(clientId, clientSecret);
 
         Request request = new Request.Builder()
                 .url(tokenUrl)
@@ -332,91 +206,56 @@ public class SchwabOAuthClient implements AutoCloseable
 
         ApiResponse response = callApi(request);
 
-        if (response.getStatusCode() != 200)
-        {
-            throw new IOException("Failed to refresh tokens. HTTP " + response.
-                    getStatusCode() + ": " + response.getBody());
+        if (!HttpUtils.isSuccessCode(response.getStatusCode())) {
+            throw new IOException(UtilityClass.buildErrorMessage("refresh tokens", 
+                "HTTP " + response.getStatusCode() + ": " + response.getBody()));
         }
 
-        TokenResponse tokens = objectMapper.readValue(response.getBody(),
-                TokenResponse.class);
+        TokenResponse tokens = UtilityClass.getObjectMapper().readValue(response.getBody(), TokenResponse.class);
 
-        if (tokens.getExpiresIn() > 0)
-        {
-            tokens.
-                    setExpiresAt(Instant.now().
-                            plusSeconds(tokens.getExpiresIn()));
+        if (tokens.getExpiresIn() > 0) {
+            tokens.setExpiresAt(Instant.now().plusSeconds(tokens.getExpiresIn()));
         }
-        if (tokens.getRefreshTokenExpiresIn() > 0)
-        {
-            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(tokens.
-                    getRefreshTokenExpiresIn()));
-        }
-        else
-        {
-            // FIX: When refreshing tokens, if no refresh_token_expires_in is returned,
-            // preserve the original refresh token expiration time or set a reasonable default
-            logger.warn(
-                    "No refresh_token_expires_in in refresh response, setting default of 7 days from now");
-            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(
-                    7 * 24 * 60 * 60));
+        
+        if (tokens.getRefreshTokenExpiresIn() > 0) {
+            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(tokens.getRefreshTokenExpiresIn()));
+        } else {
+            logger.warn("No refresh_token_expires_in in refresh response, setting default of 7 days from now");
+            tokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(7 * 24 * 60 * 60));
         }
 
         tokens.setSource(TokenResponse.TokenSource.REFRESH_TOKEN);
-        tokens.setIssuedAt(Instant.now());
+        tokens.setIssuedAt(UtilityClass.now());
 
+        UtilityClass.logMethodExit("SchwabOAuthClient", "refreshTokens", "TokenResponse[valid=" + tokens.isAccessTokenValid() + "]");
         return tokens;
     }
 
     /**
      * Get quotes
      */
-    public ApiResponse getQuotes(String[] symbols, String accessToken) throws
-            IOException
-    {
-        if (symbols == null || symbols.length == 0)
-        {
-            throw new IllegalArgumentException(
-                    "Symbols array cannot be null or empty");
+    public ApiResponse getQuotes(String[] symbols, String accessToken) throws IOException {
+        UtilityClass.validateNotNull(symbols, "Symbols array");
+        if (symbols.length == 0) {
+            throw new IllegalArgumentException("Symbols array cannot be empty");
         }
-        if (accessToken == null || accessToken.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Access token cannot be null or empty");
-        }
+        UtilityClass.validateParameter(accessToken, "Access token");
 
-        String url = String.format("%s/quotes?symbols=%s", marketDataUrl,
-                URLEncoder.encode(String.join(",", symbols),
-                        StandardCharsets.UTF_8));
+        String symbolsParam = String.join(",", symbols);
+        String url = String.format("%s/quotes?symbols=%s", marketDataUrl, 
+                StringUtils.urlEncode(symbolsParam));
+        
         return callApiWithAuth(url, "GET", null, accessToken);
     }
 
     /**
      * Get price history
-     * https://api.schwabapi.com/marketdata/v1/pricehistory?symbol=AAPL&periodType=month&period=1&frequencyType=daily&frequency=1
-     *
-     *
-     * https://api.schwabapi.com/marketdata/v1/pricehistory?symbol=AAPL&periodType=day&period=1&frequencyType=daily&frequency=1&needPreviousClose=true
-     *
-     * Fix it to do it this way, we'll make a single call to get 30 days data
-     *
      */
-    public ApiResponse getPriceHistory(String symbol,
-            String periodType, int period,
-            String frequencyType, int frequency,
-            String accessToken) throws IOException
-    {
-        if (symbol == null || symbol.trim().isEmpty())
-        {
-            throw new IllegalArgumentException("Symbol cannot be null or empty");
-        }
-        if (accessToken == null || accessToken.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Access token cannot be null or empty");
-        }
+    public ApiResponse getPriceHistory(String symbol, String periodType, int period,
+                                     String frequencyType, int frequency, String accessToken) throws IOException {
+        UtilityClass.validateParameter(symbol, "Symbol");
+        UtilityClass.validateParameter(accessToken, "Access token");
 
-        // returns one month of daily data
         String url = String.format(
                 "%s/pricehistory?symbol=%s&periodType=%s&period=%d&frequencyType=%s&frequency=%d&needPreviousClose=true",
                 marketDataUrl, symbol, periodType, period, frequencyType, frequency);
@@ -427,154 +266,71 @@ public class SchwabOAuthClient implements AutoCloseable
     /**
      * Get market hours
      */
-    public ApiResponse getMarketHours(String marketType, String accessToken)
-            throws IOException
-    {
-        if (marketType == null || marketType.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Market type cannot be null or empty");
-        }
-        if (accessToken == null || accessToken.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Access token cannot be null or empty");
-        }
+    public ApiResponse getMarketHours(String marketType, String accessToken) throws IOException {
+        UtilityClass.validateParameter(marketType, "Market type");
+        UtilityClass.validateParameter(accessToken, "Access token");
 
-        String url = String.format("%s/market/%s/hours", marketDataUrl,
-                marketType);
+        String url = String.format("%s/market/%s/hours", marketDataUrl, marketType);
         return callApiWithAuth(url, "GET", null, accessToken);
     }
 
     /**
      * Get instruments
      */
-    public ApiResponse getInstruments(String searchTerm, String projection,
-            String accessToken) throws IOException
-    {
-        if (searchTerm == null || searchTerm.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Search term cannot be null or empty");
-        }
-        if (accessToken == null || accessToken.trim().isEmpty())
-        {
-            throw new IllegalArgumentException(
-                    "Access token cannot be null or empty");
-        }
+    public ApiResponse getInstruments(String searchTerm, String projection, String accessToken) throws IOException {
+        UtilityClass.validateParameter(searchTerm, "Search term");
+        UtilityClass.validateParameter(accessToken, "Access token");
 
-        String url = String.format("%s/instruments?symbol=%s&projection=%s",
-                marketDataUrl,
-                URLEncoder.encode(searchTerm, StandardCharsets.UTF_8),
-                URLEncoder.encode(
-                        projection != null ? projection : "symbol-search",
-                        StandardCharsets.UTF_8));
+        String proj = StringUtils.hasContent(projection) ? projection : "symbol-search";
+        String url = String.format("%s/instruments?symbol=%s&projection=%s", marketDataUrl,
+                StringUtils.urlEncode(searchTerm), StringUtils.urlEncode(proj));
+                
         return callApiWithAuth(url, "GET", null, accessToken);
     }
 
     // Getters for configuration (useful for debugging)
-    public String getAuthUrl()
-    {
-        return authUrl;
-    }
+    public String getAuthUrl() { return authUrl; }
+    public String getTokenUrl() { return tokenUrl; }
+    public String getMarketDataUrl() { return marketDataUrl; }
+    public String getDefaultRedirectUri() { return defaultRedirectUri; }
+    public String getDefaultScope() { return properties.getDefaultScope(); }
+    public int getTimeoutMs() { return timeoutMs; }
 
-    public String getTokenUrl()
-    {
-        return tokenUrl;
-    }
-
-    public String getMarketDataUrl()
-    {
-        return marketDataUrl;
-    }
-
-    public String getDefaultRedirectUri()
-    {
-        return defaultRedirectUri;
-    }
-
-    public String getDefaultScope()
-    {
-        return properties.getDefaultScope();
-    }
-
-    public int getTimeoutMs()
-    {
-        return timeoutMs;
-    }
-
-    // Helper methods
-    private ApiResponse callApi(Request request) throws IOException
-    {
-        long startTime = System.currentTimeMillis();
-        try (Response response = httpClient.newCall(request).execute())
-        {
-            long responseTime = System.currentTimeMillis() - startTime;
-
+    // Helper methods using utilities
+    private ApiResponse callApi(Request request) throws IOException {
+        UtilityClass.MetricsContext metrics = UtilityClass.createMetricsContext("HTTP Request");
+        
+        try (Response response = httpClient.newCall(request).execute()) {
             String responseBody = "";
             ResponseBody body = response.body();
-            if (body != null)
-            {
+            if (body != null) {
                 responseBody = body.string();
             }
 
-            Map<String, String> singleValueHeaders = response.headers().
-                    toMultimap().entrySet().stream()
-                    .collect(Collectors.toMap(
-                            Map.Entry::getKey,
-                            entry -> entry.getValue().isEmpty() ? "" : entry.
-                            getValue().get(0),
-                            (v1, v2) -> v1
-                    ));
-
-            return new ApiResponse(response.code(), responseBody,
-                    singleValueHeaders, responseTime);
+            Map<String, String> headers = HttpUtils.headersToSingleValueMap(response.headers());
+            
+            metrics.stop("completed");
+            return new ApiResponse(response.code(), responseBody, headers, metrics.getElapsedMillis());
         }
     }
 
-    private ApiResponse callApiWithAuth(String url, String method,
-            RequestBody body, String accessToken) throws IOException
-    {
-        Request.Builder requestBuilder = new Request.Builder().url(url).method(
-                method, body);
+    private ApiResponse callApiWithAuth(String url, String method, RequestBody body, String accessToken) 
+            throws IOException {
+        
+        Request.Builder requestBuilder = new Request.Builder()
+                .url(url)
+                .method(method, body);
 
-        if (accessToken != null && !accessToken.isEmpty())
-        {
-            requestBuilder.header("Authorization", "Bearer " + accessToken);
+        if (StringUtils.hasContent(accessToken)) {
+            requestBuilder.header("Authorization", "Bearer " + HttpUtils.createBearerAuthHeader(accessToken));
         }
 
-        long startTime = System.currentTimeMillis();
-        try (Response response = httpClient.newCall(requestBuilder.build()).
-                execute())
-        {
-            long responseTime = System.currentTimeMillis() - startTime;
-
-            String responseBody = "";
-            ResponseBody responseBodyObj = response.body();
-            if (responseBodyObj != null)
-            {
-                responseBody = responseBodyObj.string();
-            }
-
-            Map<String, String> singleValueHeaders = response.headers().
-                    toMultimap().entrySet().stream()
-                    .collect(Collectors.toMap(
-                            Map.Entry::getKey,
-                            entry -> entry.getValue().isEmpty() ? "" : entry.
-                            getValue().get(0),
-                            (v1, v2) -> v1
-                    ));
-
-            return new ApiResponse(response.code(), responseBody,
-                    singleValueHeaders, responseTime);
-        }
+        return callApi(requestBuilder.build());
     }
 
     @Override
-    public void close()
-    {
-        if (httpClient != null)
-        {
+    public void close() {
+        if (httpClient != null) {
             httpClient.dispatcher().executorService().shutdown();
             httpClient.connectionPool().evictAll();
         }
