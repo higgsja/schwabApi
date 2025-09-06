@@ -1,6 +1,7 @@
 package com.higgstx.schwabapi.service;
 
 import com.higgstx.schwabapi.config.SchwabApiProperties;
+import com.higgstx.schwabapi.exception.*;
 import com.higgstx.schwabapi.model.market.DailyPriceData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,18 +19,21 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for bulk historical data functionality in MarketDataService
  */
-class BulkHistoricalDataTest {
+class BulkHistoricalDataTest
+{
 
     private MarketDataService marketDataService;
     private boolean hadTokenFile = false;
     private String originalTokenContent = null;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws SchwabApiException
+    {  // Add throws declaration
         // Backup and remove token file to ensure clean test environment
         backupAndRemoveTokenFile();
 
-        try {
+        try
+        {
             // Create with test properties
             SchwabApiProperties testProps = new SchwabApiProperties(
                     "https://api.schwabapi.com/v1/oauth/authorize",
@@ -40,11 +44,16 @@ class BulkHistoricalDataTest {
                     30000
             );
             marketDataService = new MarketDataService(testProps);
-        } catch (Exception e) {
+        }
+        catch (SchwabApiException e)
+        {
             // Fallback to default constructor if properties fail
-            try {
+            try
+            {
                 marketDataService = new MarketDataService();
-            } catch (Exception ex) {
+            }
+            catch (SchwabApiException ex)
+            {
                 // Create with minimal test properties
                 SchwabApiProperties fallbackProps = new SchwabApiProperties(
                         "https://test.api.com/auth",
@@ -54,121 +63,169 @@ class BulkHistoricalDataTest {
                         "readonly",
                         5000
                 );
-                marketDataService = new MarketDataService(fallbackProps);
+                try
+                {
+                    marketDataService = new MarketDataService(fallbackProps);
+                }
+                catch (SchwabApiException fallbackEx)
+                {
+                    throw new RuntimeException(
+                            "Failed to create MarketDataService for testing",
+                            fallbackEx);
+                }
             }
         }
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        if (marketDataService != null) {
+    void tearDown() throws Exception
+    {
+        if (marketDataService != null)
+        {
             marketDataService.close();
         }
         restoreTokenFile();
     }
 
-    private void backupAndRemoveTokenFile() {
-        try {
+    private void backupAndRemoveTokenFile()
+    {
+        try
+        {
             String tokenFile = "schwab-api.json";
-            if (Files.exists(Paths.get(tokenFile))) {
+            if (Files.exists(Paths.get(tokenFile)))
+            {
                 hadTokenFile = true;
                 originalTokenContent = Files.readString(Paths.get(tokenFile));
                 Files.delete(Paths.get(tokenFile));
 
                 String refreshTokenFile = "schwab-refresh-token.txt";
-                if (Files.exists(Paths.get(refreshTokenFile))) {
+                if (Files.exists(Paths.get(refreshTokenFile)))
+                {
                     Files.delete(Paths.get(refreshTokenFile));
                 }
             }
-        } catch (Exception e) {
+        }
+        catch (Exception e)
+        {
             // Ignore errors during cleanup
         }
     }
 
-    private void restoreTokenFile() {
-        try {
-            if (hadTokenFile && originalTokenContent != null) {
-                Files.writeString(Paths.get("schwab-api.json"), originalTokenContent);
+    private void restoreTokenFile()
+    {
+        try
+        {
+            if (hadTokenFile && originalTokenContent != null)
+            {
+                Files.writeString(Paths.get("schwab-api.json"),
+                        originalTokenContent);
             }
-        } catch (Exception e) {
+        }
+        catch (Exception e)
+        {
             // Ignore errors during restoration
         }
     }
 
     @Nested
     @DisplayName("Bulk Historical Data Operations")
-    class BulkHistoricalDataOperationsTest {
-
-        
+    class BulkHistoricalDataOperationsTest
+    {
 
         @Test
-        @DisplayName("Should handle bulk request with explicit access token and return error data")
-        void testGetBulkHistoricalData_WithFakeToken_ReturnsErrorData() {
+        @DisplayName(
+                "Should handle bulk request with explicit access token and return error data")
+        void testGetBulkHistoricalData_WithFakeToken_ReturnsErrorData()
+        {
             // Given
-            String[] symbols = {"AAPL", "GOOGL"};
+            String[] symbols =
+            {
+                "AAPL", "GOOGL"
+            };
             String fakeToken = "fake-access-token";
 
             // When
-            assertDoesNotThrow(() -> {
-                List<DailyPriceData> result = marketDataService.getBulkHistoricalData(symbols, fakeToken);
-                
+            assertDoesNotThrow(() ->
+            {
+                List<DailyPriceData> result = marketDataService.
+                        getBulkHistoricalData(symbols, fakeToken);
+
                 // Then - Should return error data for each symbol (API calls fail but method continues)
                 assertNotNull(result);
                 assertEquals(2, result.size());
-                
+
                 // Check that all returned data points indicate errors
-                for (DailyPriceData data : result) {
+                for (DailyPriceData data : result)
+                {
                     assertFalse(data.isSuccess(), "Data should indicate error");
-                    assertNotNull(data.getErrorMessage(), "Error message should be present");
-                    assertTrue(symbols[0].equals(data.getSymbol()) || symbols[1].equals(data.getSymbol()));
+                    assertNotNull(data.getErrorMessage(),
+                            "Error message should be present");
+                    assertTrue(
+                            symbols[0].equals(data.getSymbol()) || symbols[1].
+                            equals(data.getSymbol()));
                 }
             });
         }
 
         @Test
         @DisplayName("Should skip null and empty symbols")
-        void testGetBulkHistoricalData_WithNullAndEmptySymbols_SkipsInvalidSymbols() {
+        void testGetBulkHistoricalData_WithNullAndEmptySymbols_SkipsInvalidSymbols()
+        {
             // Given
-            String[] symbolsWithNulls = {"AAPL", null, "", "  ", "GOOGL"};
+            String[] symbolsWithNulls =
+            {
+                "AAPL", null, "", "  ", "GOOGL"
+            };
             String fakeToken = "fake-access-token";
 
             // When - This will return error data for valid symbols, skip invalid ones
-            assertDoesNotThrow(() -> {
-                List<DailyPriceData> result = marketDataService.getBulkHistoricalData(symbolsWithNulls, fakeToken);
-                
+            assertDoesNotThrow(() ->
+            {
+                List<DailyPriceData> result = marketDataService.
+                        getBulkHistoricalData(symbolsWithNulls, fakeToken);
+
                 // Should return 2 error entries (for AAPL and GOOGL), skip the rest
                 assertNotNull(result);
                 assertEquals(2, result.size());
-                
+
                 // All should be errors due to fake token, but only valid symbols processed
-                for (DailyPriceData data : result) {
+                for (DailyPriceData data : result)
+                {
                     assertFalse(data.isSuccess());
-                    assertTrue("AAPL".equals(data.getSymbol()) || "GOOGL".equals(data.getSymbol()));
+                    assertTrue("AAPL".equals(data.getSymbol()) || "GOOGL".
+                            equals(data.getSymbol()));
                 }
             });
         }
 
         @Test
         @DisplayName("Should normalize symbol case")
-        void testGetBulkHistoricalData_CaseNormalization() {
+        void testGetBulkHistoricalData_CaseNormalization()
+        {
             // Given
-            String[] mixedCaseSymbols = {"aapl", "GOOGL", "MsFt"};
+            String[] mixedCaseSymbols =
+            {
+                "aapl", "GOOGL", "MsFt"
+            };
             String fakeToken = "fake-access-token";
 
             // When
-            assertDoesNotThrow(() -> {
-                List<DailyPriceData> result = marketDataService.getBulkHistoricalData(mixedCaseSymbols, fakeToken);
-                
+            assertDoesNotThrow(() ->
+            {
+                List<DailyPriceData> result = marketDataService.
+                        getBulkHistoricalData(mixedCaseSymbols, fakeToken);
+
                 // Should return 3 error entries with normalized symbols
                 assertNotNull(result);
                 assertEquals(3, result.size());
-                
+
                 // Check that symbols are normalized to uppercase
-                for (DailyPriceData data : result) {
+                for (DailyPriceData data : result)
+                {
                     assertFalse(data.isSuccess());
-                    assertTrue("AAPL".equals(data.getSymbol()) || 
-                              "GOOGL".equals(data.getSymbol()) || 
-                              "MSFT".equals(data.getSymbol()));
+                    assertTrue("AAPL".equals(data.getSymbol())
+                            || "GOOGL".equals(data.getSymbol())
+                            || "MSFT".equals(data.getSymbol()));
                 }
             });
         }
@@ -176,11 +233,13 @@ class BulkHistoricalDataTest {
 
     @Nested
     @DisplayName("DailyPriceData Model Tests")
-    class DailyPriceDataModelTest {
+    class DailyPriceDataModelTest
+    {
 
         @Test
         @DisplayName("Should create successful DailyPriceData with all fields")
-        void testDailyPriceData_Success_AllFields() {
+        void testDailyPriceData_Success_AllFields()
+        {
             // Given
             String symbol = "AAPL";
             Long datetime = System.currentTimeMillis();
@@ -191,7 +250,8 @@ class BulkHistoricalDataTest {
             Long volume = 1000000L;
 
             // When
-            DailyPriceData data = DailyPriceData.success(symbol, datetime, open, high, low, close, volume);
+            DailyPriceData data = DailyPriceData.success(symbol, datetime, open,
+                    high, low, close, volume);
 
             // Then
             assertNotNull(data);
@@ -209,7 +269,8 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should create error DailyPriceData")
-        void testDailyPriceData_Error() {
+        void testDailyPriceData_Error()
+        {
             // Given
             String symbol = "INVALID";
             String errorMessage = "Symbol not found";
@@ -231,14 +292,16 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should create error DailyPriceData with date")
-        void testDailyPriceData_ErrorWithDate() {
+        void testDailyPriceData_ErrorWithDate()
+        {
             // Given
             String symbol = "INVALID";
             LocalDate date = LocalDate.of(2024, 1, 15);
             String errorMessage = "No data for date";
 
             // When
-            DailyPriceData data = DailyPriceData.error(symbol, date, errorMessage);
+            DailyPriceData data = DailyPriceData.error(symbol, date,
+                    errorMessage);
 
             // Then
             assertNotNull(data);
@@ -250,7 +313,8 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should handle null datetime in getLocalDate")
-        void testDailyPriceData_NullDatetime_GetLocalDate() {
+        void testDailyPriceData_NullDatetime_GetLocalDate()
+        {
             // Given
             DailyPriceData data = new DailyPriceData();
             data.setSymbol("TEST");
@@ -266,12 +330,14 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should convert datetime to LocalDate")
-        void testDailyPriceData_DatetimeConversion() {
+        void testDailyPriceData_DatetimeConversion()
+        {
             // Given
             // January 15, 2024 at midnight UTC
             Long timestamp = 1705276800000L; // 2024-01-15 00:00:00 UTC
-            
-            DailyPriceData data = DailyPriceData.success("TEST", timestamp, 100.0, 101.0, 99.0, 100.5, 50000L);
+
+            DailyPriceData data = DailyPriceData.success("TEST", timestamp,
+                    100.0, 101.0, 99.0, 100.5, 50000L);
 
             // When
             LocalDate localDate = data.getLocalDate();
@@ -281,25 +347,33 @@ class BulkHistoricalDataTest {
             // Note: The exact date depends on system timezone, but should be around Jan 14-15, 2024
             assertTrue(localDate.getYear() == 2024);
             assertTrue(localDate.getMonthValue() == 1);
-            assertTrue(localDate.getDayOfMonth() >= 14 && localDate.getDayOfMonth() <= 15);
+            assertTrue(localDate.getDayOfMonth() >= 14 && localDate.
+                    getDayOfMonth() <= 15);
         }
     }
 
     @Nested
     @DisplayName("Edge Cases and Error Handling")
-    class EdgeCasesTest {
+    class EdgeCasesTest
+    {
 
         @Test
         @DisplayName("Should handle whitespace-only symbols by skipping them")
-        void testGetBulkHistoricalData_WhitespaceSymbols() {
+        void testGetBulkHistoricalData_WhitespaceSymbols()
+        {
             // Given
-            String[] whitespaceSymbols = {"  ", "\t", "\n"};
+            String[] whitespaceSymbols =
+            {
+                "  ", "\t", "\n"
+            };
             String fakeToken = "fake-access-token";
 
             // When & Then - Should not crash, skips all whitespace symbols
-            assertDoesNotThrow(() -> {
-                List<DailyPriceData> result = marketDataService.getBulkHistoricalData(whitespaceSymbols, fakeToken);
-                
+            assertDoesNotThrow(() ->
+            {
+                List<DailyPriceData> result = marketDataService.
+                        getBulkHistoricalData(whitespaceSymbols, fakeToken);
+
                 // Should return empty list since all symbols are skipped
                 assertNotNull(result);
                 assertEquals(0, result.size());
@@ -308,20 +382,27 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should handle very long symbol names")
-        void testGetBulkHistoricalData_LongSymbolNames() {
+        void testGetBulkHistoricalData_LongSymbolNames()
+        {
             // Given
-            String[] longSymbols = {"A".repeat(100), "B".repeat(50)};
+            String[] longSymbols =
+            {
+                "A".repeat(100), "B".repeat(50)
+            };
             String fakeToken = "fake-access-token";
 
             // When & Then - Should not crash, will return error data
-            assertDoesNotThrow(() -> {
-                List<DailyPriceData> result = marketDataService.getBulkHistoricalData(longSymbols, fakeToken);
-                
+            assertDoesNotThrow(() ->
+            {
+                List<DailyPriceData> result = marketDataService.
+                        getBulkHistoricalData(longSymbols, fakeToken);
+
                 // Should return 2 error entries
                 assertNotNull(result);
                 assertEquals(2, result.size());
-                
-                for (DailyPriceData data : result) {
+
+                for (DailyPriceData data : result)
+                {
                     assertFalse(data.isSuccess());
                     assertNotNull(data.getErrorMessage());
                 }
@@ -330,15 +411,21 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should handle single symbol array")
-        void testGetBulkHistoricalData_SingleSymbol() {
+        void testGetBulkHistoricalData_SingleSymbol()
+        {
             // Given
-            String[] singleSymbol = {"AAPL"};
+            String[] singleSymbol =
+            {
+                "AAPL"
+            };
             String fakeToken = "fake-access-token";
 
             // When & Then - Should not crash, will return error data
-            assertDoesNotThrow(() -> {
-                List<DailyPriceData> result = marketDataService.getBulkHistoricalData(singleSymbol, fakeToken);
-                
+            assertDoesNotThrow(() ->
+            {
+                List<DailyPriceData> result = marketDataService.
+                        getBulkHistoricalData(singleSymbol, fakeToken);
+
                 // Should return 1 error entry
                 assertNotNull(result);
                 assertEquals(1, result.size());
@@ -347,18 +434,20 @@ class BulkHistoricalDataTest {
             });
         }
 
-        
     }
 
     @Nested
     @DisplayName("Utility Method Tests")
-    class UtilityMethodsTest {
+    class UtilityMethodsTest
+    {
 
         @Test
         @DisplayName("Should handle service close gracefully")
-        void testClose_GracefulShutdown() {
+        void testClose_GracefulShutdown()
+        {
             // When & Then
-            assertDoesNotThrow(() -> {
+            assertDoesNotThrow(() ->
+            {
                 SchwabApiProperties testProps = new SchwabApiProperties(
                         "https://api.schwabapi.com/v1/oauth/authorize",
                         "https://api.schwabapi.com/v1/oauth/token",
@@ -374,9 +463,11 @@ class BulkHistoricalDataTest {
 
         @Test
         @DisplayName("Should handle multiple close calls")
-        void testClose_MultipleCalls() {
+        void testClose_MultipleCalls()
+        {
             // When & Then
-            assertDoesNotThrow(() -> {
+            assertDoesNotThrow(() ->
+            {
                 SchwabApiProperties testProps = new SchwabApiProperties(
                         "https://api.schwabapi.com/v1/oauth/authorize",
                         "https://api.schwabapi.com/v1/oauth/token",

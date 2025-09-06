@@ -20,6 +20,7 @@ public final class ConversionUtils {
      * @return The Double value, or null if conversion fails
      */
     public static Double convertToDouble(Object value) {
+         System.out.println("DEBUG: convertToDouble called with: " + value);
         if (value == null) {
             return null;
         }

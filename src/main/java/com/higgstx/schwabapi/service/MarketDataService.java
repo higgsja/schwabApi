@@ -18,8 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Service class for market data operations - no credential management
- * Refactored to use utility package for common operations
+ * Service class for market data operations - Updated to use SchwabApiException
  */
 public class MarketDataService implements AutoCloseable {
 
@@ -28,13 +27,13 @@ public class MarketDataService implements AutoCloseable {
     private final SchwabOAuthClient client;
     private final ObjectMapper objectMapper;
 
-    public MarketDataService() {
+    public MarketDataService() throws SchwabApiException {
         // Use the instance-based SchwabOAuthClient with default configuration
         this.client = new SchwabOAuthClient(true); // Enable logging
         this.objectMapper = UtilityClass.getObjectMapper();
     }
 
-    public MarketDataService(SchwabApiProperties properties) {
+    public MarketDataService(SchwabApiProperties properties) throws SchwabApiException {
         // Use explicit configuration
         this.client = new SchwabOAuthClient(properties, true);
         this.objectMapper = UtilityClass.getObjectMapper();
@@ -104,19 +103,19 @@ public class MarketDataService implements AutoCloseable {
      * Gets price history for a symbol and returns parsed DailyPriceData objects
      */
     public List<DailyPriceData> getPriceHistoryData(String symbol, String periodType,
-            int period, String frequencyType, int frequency) throws IOException, SchwabApiException {
+            int period, String frequencyType, int frequency) throws SchwabApiException {
         return getPriceHistoryData(symbol, periodType, period, frequencyType, frequency, 
                 TokenManager.getValidAccessToken());
     }
 
     public List<DailyPriceData> getPriceHistoryData(String symbol, String periodType,
-            int period, String frequencyType, int frequency, String accessToken) throws IOException {
+            int period, String frequencyType, int frequency, String accessToken) throws SchwabApiException {
         
         UtilityClass.validateParameter(symbol, "Symbol");
         String cleanSymbol = StringUtils.normalizeSymbol(symbol);
         
         if (cleanSymbol == null) {
-            throw new IllegalArgumentException("Invalid symbol: " + symbol);
+            throw SchwabApiException.validationError("Invalid symbol: " + symbol);
         }
 
         try {
@@ -131,34 +130,33 @@ public class MarketDataService implements AutoCloseable {
                 logger.error("API error for symbol {}: HTTP {}, Body: {}",
                         cleanSymbol, response.getStatusCode(), response.getBody());
 
-                // Return a single error object
-                List<DailyPriceData> errorList = new ArrayList<>();
-                errorList.add(DailyPriceData.error(cleanSymbol,
-                        UtilityClass.buildErrorMessage("API error", 
-                        "HTTP " + response.getStatusCode() + " - " + response.getBody())));
-                return errorList;
+                // Create API exception from response
+                throw SchwabApiException.fromApiResponse("get price history for symbol: " + cleanSymbol, response);
             }
-        } catch (IOException e) {
+        } catch (SchwabApiException e) {
+            throw e; // Re-throw SchwabApiException as-is
+        } catch (Exception e) {
             logger.error("Error fetching data for symbol {}: {}", cleanSymbol, e.getMessage());
-
-            // Return a single error object
-            List<DailyPriceData> errorList = new ArrayList<>();
-            errorList.add(DailyPriceData.error(cleanSymbol, e.getMessage()));
-            return errorList;
+            throw SchwabApiException.builder()
+                    .statusCode(0)
+                    .message("Failed to fetch price history for symbol: " + cleanSymbol)
+                    .errorCode("PRICE_HISTORY_ERROR")
+                    .cause(e)
+                    .build();
         }
     }
 
     /**
      * Gets historical price data for multiple symbols (1 month of daily data per symbol)
      */
-    public List<DailyPriceData> getBulkHistoricalData(String[] symbols) throws IOException, SchwabApiException {
+    public List<DailyPriceData> getBulkHistoricalData(String[] symbols) throws SchwabApiException {
         return getBulkHistoricalData(symbols, TokenManager.getValidAccessToken());
     }
 
-    public List<DailyPriceData> getBulkHistoricalData(String[] symbols, String accessToken) throws IOException {
+    public List<DailyPriceData> getBulkHistoricalData(String[] symbols, String accessToken) throws SchwabApiException {
         UtilityClass.validateNotNull(symbols, "Symbols array");
         if (symbols.length == 0) {
-            throw new IllegalArgumentException("Symbols array cannot be empty");
+            throw SchwabApiException.validationError("Symbols array cannot be empty");
         }
 
         List<DailyPriceData> allData = new ArrayList<>();
@@ -198,6 +196,7 @@ public class MarketDataService implements AutoCloseable {
                             cleanSymbol, response.getStatusCode(),
                             response.getBody() != null ? response.getBody() : "null");
 
+                    // Add error data instead of throwing exception (graceful degradation)
                     allData.add(DailyPriceData.error(cleanSymbol,
                             "HTTP " + response.getStatusCode() + ": " + response.getBody()));
                 }
@@ -205,6 +204,9 @@ public class MarketDataService implements AutoCloseable {
                 // Add delay between requests
                 UtilityClass.safeSleep(100, java.util.concurrent.TimeUnit.MILLISECONDS);
 
+            } catch (SchwabApiException e) {
+                logger.error("API exception fetching data for symbol {}: {}", cleanSymbol, e.getMessage(), e);
+                allData.add(DailyPriceData.error(cleanSymbol, e.getDisplayMessage()));
             } catch (Exception e) {
                 logger.error("Exception fetching data for symbol {}: {}", cleanSymbol, e.getMessage(), e);
                 allData.add(DailyPriceData.error(cleanSymbol, "Exception: " + e.getMessage()));
@@ -290,11 +292,11 @@ public class MarketDataService implements AutoCloseable {
     /**
      * Gets a single quote for a ticker symbol.
      */
-    public QuoteData getQuote(String ticker) throws IOException, SchwabApiException {
+    public QuoteData getQuote(String ticker) throws SchwabApiException {
         return getQuote(ticker, TokenManager.getValidAccessToken());
     }
 
-    public QuoteData getQuote(String ticker, String accessToken) throws IOException {
+    public QuoteData getQuote(String ticker, String accessToken) throws SchwabApiException {
         List<QuoteData> results = getQuotes(List.of(ticker), accessToken);
         if (results != null && !results.isEmpty()) {
             return results.get(0);
@@ -306,85 +308,89 @@ public class MarketDataService implements AutoCloseable {
     /**
      * Gets quotes for a list of symbols
      */
-    public List<QuoteData> getQuotes(List<String> symbols) throws IOException, SchwabApiException {
+    public List<QuoteData> getQuotes(List<String> symbols) throws SchwabApiException {
         return getQuotes(symbols, TokenManager.getValidAccessToken());
     }
 
-    public List<QuoteData> getQuotes(List<String> symbols, String accessToken) throws IOException {
+    public List<QuoteData> getQuotes(List<String> symbols, String accessToken) throws SchwabApiException {
         UtilityClass.validateNotNull(symbols, "Symbols list");
         if (symbols.isEmpty()) {
-            throw new IllegalArgumentException("Symbols list cannot be empty");
+            throw SchwabApiException.validationError("Symbols list cannot be empty");
         }
 
-        ApiResponse response = client.getQuotes(symbols.toArray(new String[0]), accessToken);
-        List<QuoteData> quoteDataList = new ArrayList<>();
+        try {
+            ApiResponse response = client.getQuotes(symbols.toArray(new String[0]), accessToken);
+            List<QuoteData> quoteDataList = new ArrayList<>();
 
-        if (HttpUtils.isSuccessCode(response.getStatusCode())) {
-            try {
-                Map<String, Object> data = JsonUtils.parseJsonToMap(response.getBody(), objectMapper);
-                
-                for (String symbol : symbols) {
-                    Object quoteObject = data.get(symbol);
-                    if (quoteObject instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> quoteMap = (Map<String, Object>) quoteObject;
+            if (HttpUtils.isSuccessCode(response.getStatusCode())) {
+                try {
+                    Map<String, Object> data = JsonUtils.parseJsonToMap(response.getBody(), objectMapper);
+                    
+                    for (String symbol : symbols) {
+                        Object quoteObject = data.get(symbol);
+                        if (quoteObject instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> quoteMap = (Map<String, Object>) quoteObject;
 
-                        Object statusObj = quoteMap.get("status");
-                        String status = statusObj != null ? statusObj.toString() : null;
+                            Object statusObj = quoteMap.get("status");
+                            String status = statusObj != null ? statusObj.toString() : null;
 
-                        if ("SUCCESS".equals(status)) {
-                            Double closePrice = ConversionUtils.convertToDouble(quoteMap.get("closePrice"));
-                            Double highPrice = ConversionUtils.convertToDouble(quoteMap.get("highPrice"));
-                            Double lowPrice = ConversionUtils.convertToDouble(quoteMap.get("lowPrice"));
-                            Double openPrice = ConversionUtils.convertToDouble(quoteMap.get("openPrice"));
-                            Long totalVolume = ConversionUtils.convertToLong(quoteMap.get("totalVolume"));
+                            if ("SUCCESS".equals(status)) {
+                                Double closePrice = ConversionUtils.convertToDouble(quoteMap.get("closePrice"));
+                                Double highPrice = ConversionUtils.convertToDouble(quoteMap.get("highPrice"));
+                                Double lowPrice = ConversionUtils.convertToDouble(quoteMap.get("lowPrice"));
+                                Double openPrice = ConversionUtils.convertToDouble(quoteMap.get("openPrice"));
+                                Long totalVolume = ConversionUtils.convertToLong(quoteMap.get("totalVolume"));
 
-                            quoteDataList.add(QuoteData.success(symbol, closePrice, highPrice, lowPrice, openPrice, totalVolume));
+                                quoteDataList.add(QuoteData.success(symbol, closePrice, highPrice, lowPrice, openPrice, totalVolume));
+                            } else {
+                                quoteDataList.add(QuoteData.notFound(symbol));
+                            }
                         } else {
                             quoteDataList.add(QuoteData.notFound(symbol));
                         }
-                    } else {
-                        quoteDataList.add(QuoteData.notFound(symbol));
                     }
+                } catch (Exception e) {
+                    logger.error("Error parsing API response: {}", e.getMessage());
+                    throw SchwabApiException.builder()
+                            .statusCode(response.getStatusCode())
+                            .message("Failed to parse quotes response")
+                            .errorCode("QUOTES_PARSING_ERROR")
+                            .cause(e)
+                            .build();
                 }
-            } catch (Exception e) {
-                logger.error("Error parsing API response: {}", e.getMessage());
-                for (String symbol : symbols) {
-                    quoteDataList.add(QuoteData.error(symbol, "Error parsing API response"));
-                }
+            } else {
+                logger.error("API call failed with status code: {}", response.getStatusCode());
+                throw SchwabApiException.fromApiResponse("get quotes", response);
             }
-        } else {
-            logger.error("API call failed with status code: {}", response.getStatusCode());
-            String errorMessage = "API error: " + response.getStatusCode();
-            for (String symbol : symbols) {
-                quoteDataList.add(QuoteData.error(symbol, errorMessage));
-            }
+            return quoteDataList;
+        } catch (SchwabApiException e) {
+            throw e; // Re-throw SchwabApiException as-is
         }
-        return quoteDataList;
     }
 
     /**
      * Gets price history for a symbol (returns raw ApiResponse for backward compatibility)
      */
     public ApiResponse getPriceHistory(String symbol, String periodType, int period,
-            String frequencyType, int frequency) throws IOException, SchwabApiException {
+            String frequencyType, int frequency) throws SchwabApiException {
         return getPriceHistory(symbol, periodType, period, frequencyType, frequency, 
                 TokenManager.getValidAccessToken());
     }
 
     public ApiResponse getPriceHistory(String symbol, String periodType, int period,
-            String frequencyType, int frequency, String accessToken) throws IOException {
+            String frequencyType, int frequency, String accessToken) throws SchwabApiException {
         return client.getPriceHistory(symbol, periodType, period, frequencyType, frequency, accessToken);
     }
 
     /**
      * Gets market hours for a market type
      */
-    public ApiResponse getMarketHours(String marketType) throws IOException, SchwabApiException {
+    public ApiResponse getMarketHours(String marketType) throws SchwabApiException {
         return getMarketHours(marketType, TokenManager.getValidAccessToken());
     }
 
-    public ApiResponse getMarketHours(String marketType, String accessToken) throws IOException {
+    public ApiResponse getMarketHours(String marketType, String accessToken) throws SchwabApiException {
         return client.getMarketHours(marketType, accessToken);
     }
 

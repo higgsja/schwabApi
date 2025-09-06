@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Token Manager with automatic refresh capability using stored credentials
- * Refactored to use utility package for common operations
+ * Updated to use SchwabApiException for proper error handling
  */
 @Getter
 @Setter
@@ -41,71 +41,141 @@ public class TokenManager {
     /**
      * Default constructor - loads credentials from application.yml
      */
-    public TokenManager() {
+    public TokenManager() throws SchwabApiException {
         this("schwab-api.json", "schwab-refresh-token.txt");
     }
 
     /**
      * Constructor with custom file names - loads credentials from application.yml
      */
-    public TokenManager(String tokenPropertiesFile, String refreshTokenFile) {
+    public TokenManager(String tokenPropertiesFile, String refreshTokenFile) throws SchwabApiException {
         this.tokenPropertiesFile = StringUtils.hasContent(tokenPropertiesFile) ? tokenPropertiesFile : "schwab-api.json";
         this.refreshTokenFile = StringUtils.hasContent(refreshTokenFile) ? refreshTokenFile : "schwab-refresh-token.txt";
 
-        // Load credentials from yml using utility functions
-        this.clientId = YamlUtils.loadCredentialFromYml("appKey");
-        this.clientSecret = YamlUtils.loadCredentialFromYml("appSecret");
+        try {
+            // Load credentials from yml using utility functions
+            this.clientId = YamlUtils.loadCredentialFromYml("appKey");
+            this.clientSecret = YamlUtils.loadCredentialFromYml("appSecret");
+            
+            if (StringUtils.isBlank(this.clientId) || StringUtils.isBlank(this.clientSecret)) {
+                throw SchwabApiException.configurationError(
+                    "Missing credentials: appKey and appSecret must be configured in application.yml");
+            }
+        } catch (Exception e) {
+            throw SchwabApiException.configurationError("Failed to load credentials from application.yml: " + e.getMessage());
+        }
     }
 
     /**
      * Constructor with explicit credentials
      */
-    public TokenManager(String tokenPropertiesFile, String refreshTokenFile, String clientId, String clientSecret) {
+    public TokenManager(String tokenPropertiesFile, String refreshTokenFile, String clientId, String clientSecret) throws SchwabApiException {
         this.tokenPropertiesFile = tokenPropertiesFile;
         this.refreshTokenFile = refreshTokenFile;
         this.clientId = clientId;
         this.clientSecret = clientSecret;
+        
+        if (StringUtils.isBlank(this.clientId) || StringUtils.isBlank(this.clientSecret)) {
+            throw SchwabApiException.configurationError(
+                "Client ID and Client Secret cannot be null or empty");
+        }
     }
 
     // Static methods for backward compatibility
     public static String getValidAccessToken() throws SchwabApiException {
-        TokenManager defaultManager = new TokenManager();
-        return defaultManager.getValidAccessTokenInstance();
+        try {
+            TokenManager defaultManager = new TokenManager();
+            return defaultManager.getValidAccessTokenInstance();
+        } catch (Exception e) {
+            if (e instanceof SchwabApiException) {
+                throw (SchwabApiException) e;
+            }
+            throw SchwabApiException.configurationError("Failed to create TokenManager: " + e.getMessage());
+        }
     }
 
-    public static TokenResponse loadTokens(boolean autoRefresh) {
-        TokenManager defaultManager = new TokenManager();
-        return defaultManager.loadTokensInstance(autoRefresh);
+    public static TokenResponse loadTokens(boolean autoRefresh) throws SchwabApiException {
+        try {
+            TokenManager defaultManager = new TokenManager();
+            return defaultManager.loadTokensInstance(autoRefresh);
+        } catch (Exception e) {
+            if (e instanceof SchwabApiException) {
+                throw (SchwabApiException) e;
+            }
+            throw SchwabApiException.configurationError("Failed to load tokens: " + e.getMessage());
+        }
     }
 
     public static boolean hasValidTokens() {
-        TokenManager defaultManager = new TokenManager();
-        return defaultManager.hasValidTokensInstance();
+        try {
+            TokenManager defaultManager = new TokenManager();
+            return defaultManager.hasValidTokensInstance();
+        } catch (Exception e) {
+            logger.debug("Error checking token validity: {}", e.getMessage());
+            return false;
+        }
     }
 
     public static boolean hasUsableTokens() {
-        TokenManager defaultManager = new TokenManager();
-        return defaultManager.hasUsableTokensInstance();
+        try {
+            TokenManager defaultManager = new TokenManager();
+            return defaultManager.hasUsableTokensInstance();
+        } catch (Exception e) {
+            logger.debug("Error checking token usability: {}", e.getMessage());
+            return false;
+        }
     }
 
     public static TokenResponse forceTokenRefresh() throws SchwabApiException {
-        TokenManager defaultManager = new TokenManager();
-        return defaultManager.forceTokenRefreshInstance();
+        try {
+            TokenManager defaultManager = new TokenManager();
+            return defaultManager.forceTokenRefreshInstance();
+        } catch (Exception e) {
+            if (e instanceof SchwabApiException) {
+                throw (SchwabApiException) e;
+            }
+            throw SchwabApiException.builder()
+                    .statusCode(500)
+                    .message("Failed to force token refresh")
+                    .errorCode("FORCE_REFRESH_ERROR")
+                    .cause(e)
+                    .build();
+        }
     }
 
     public static void saveTokens(TokenResponse tokens) throws SchwabApiException {
-        TokenManager defaultManager = new TokenManager();
-        defaultManager.saveTokensInstance(tokens);
+        try {
+            TokenManager defaultManager = new TokenManager();
+            defaultManager.saveTokensInstance(tokens);
+        } catch (Exception e) {
+            if (e instanceof SchwabApiException) {
+                throw (SchwabApiException) e;
+            }
+            throw SchwabApiException.builder()
+                    .statusCode(500)
+                    .message("Failed to save tokens")
+                    .errorCode("SAVE_TOKENS_ERROR")
+                    .cause(e)
+                    .build();
+        }
     }
 
     public static void showTokenFilePaths() {
-        TokenManager defaultManager = new TokenManager();
-        defaultManager.showTokenFilePathsInstance();
+        try {
+            TokenManager defaultManager = new TokenManager();
+            defaultManager.showTokenFilePathsInstance();
+        } catch (Exception e) {
+            System.err.println("Error showing token file paths: " + e.getMessage());
+        }
     }
 
     public static void clearTokenFiles() {
-        TokenManager defaultManager = new TokenManager();
-        defaultManager.clearTokenFilesInstance();
+        try {
+            TokenManager defaultManager = new TokenManager();
+            defaultManager.clearTokenFilesInstance();
+        } catch (Exception e) {
+            System.err.println("Error clearing token files: " + e.getMessage());
+        }
     }
 
     // Instance methods
@@ -114,12 +184,11 @@ public class TokenManager {
         if (tokens != null && tokens.isAccessTokenValid()) {
             return tokens.getAccessToken();
         }
-        throw new SchwabApiException(401,
-                "Unable to get a valid access token. Re-authorization may be required.",
-                "TOKEN_UNAVAILABLE", null, (Throwable) null);
+        throw SchwabApiException.tokenError(
+                "Unable to get a valid access token. Re-authorization may be required.");
     }
 
-    public TokenResponse loadTokensInstance(boolean autoRefresh) {
+    public TokenResponse loadTokensInstance(boolean autoRefresh) throws SchwabApiException {
         UtilityClass.logMethodEntry("TokenManager", "loadTokensInstance", autoRefresh);
 
         lock.readLock().lock();
@@ -171,7 +240,7 @@ public class TokenManager {
         return canRefresh;
     }
 
-    private TokenResponse handleTokenRefresh(TokenResponse tokens) {
+    private TokenResponse handleTokenRefresh(TokenResponse tokens) throws SchwabApiException {
         // Always attempt refresh if access token is expired or expiring soon
         boolean needsRefresh = !tokens.isAccessTokenValid() || 
                 tokens.willAccessTokenExpireSoon(TOKEN_REFRESH_BUFFER_SECONDS);
@@ -187,8 +256,7 @@ public class TokenManager {
         }
 
         if (!tokens.isRefreshTokenValid()) {
-            logger.error("Refresh token is expired. Manual re-authorization required.");
-            return tokens;
+            throw SchwabApiException.tokenError("Refresh token is expired. Manual re-authorization required.");
         }
 
         try {
@@ -236,9 +304,17 @@ public class TokenManager {
                         newTokens.getExpiresAt(), newTokens.getRefreshTokenExpiresAt());
                 return newTokens;
             }
+        } catch (SchwabApiException e) {
+            logger.error("Failed to refresh access token: {}", e.getMessage(), e);
+            throw e; // Re-throw SchwabApiException as-is
         } catch (Exception e) {
             logger.error("Failed to refresh access token: {}", e.getMessage(), e);
-            return tokens; // Return original tokens if refresh fails
+            throw SchwabApiException.builder()
+                    .statusCode(500)
+                    .message("Token refresh failed")
+                    .errorCode("TOKEN_REFRESH_FAILED")
+                    .cause(e)
+                    .build();
         }
     }
 
@@ -268,9 +344,8 @@ public class TokenManager {
         UtilityClass.logMethodEntry("TokenManager", "forceTokenRefreshInstance");
 
         if (!canRefresh()) {
-            throw new SchwabApiException(500,
-                    "Token refresh requires credentials - ensure appKey and appSecret are configured",
-                    "REFRESH_NOT_AVAILABLE", null, (Throwable) null);
+            throw SchwabApiException.configurationError(
+                    "Token refresh requires credentials - ensure appKey and appSecret are configured");
         }
 
         // Clear cache to force fresh load
@@ -278,14 +353,12 @@ public class TokenManager {
 
         TokenResponse tokens = loadTokensFromFile();
         if (tokens == null) {
-            throw new SchwabApiException(404, "No tokens found to refresh",
-                    "NO_TOKENS", null, (Throwable) null);
+            throw SchwabApiException.notFound("No tokens found to refresh");
         }
 
         if (!tokens.isRefreshTokenValid()) {
-            throw new SchwabApiException(401,
-                    "Refresh token is expired - re-authorization required",
-                    "REFRESH_TOKEN_EXPIRED", null, (Throwable) null);
+            throw SchwabApiException.tokenError(
+                    "Refresh token is expired - re-authorization required");
         }
 
         // Force refresh regardless of access token validity
@@ -313,10 +386,17 @@ public class TokenManager {
                     newTokens.getExpiresAt(), newTokens.getRefreshTokenExpiresAt());
 
             return newTokens;
+        } catch (SchwabApiException e) {
+            logger.error("Force refresh failed: {}", e.getMessage(), e);
+            throw e; // Re-throw SchwabApiException as-is
         } catch (Exception e) {
             logger.error("Force refresh failed: {}", e.getMessage(), e);
-            throw new SchwabApiException(500, "Force refresh failed: " + e.getMessage(),
-                    "FORCE_REFRESH_ERROR", null, e);
+            throw SchwabApiException.builder()
+                    .statusCode(500)
+                    .message("Force refresh failed")
+                    .errorCode("FORCE_REFRESH_ERROR")
+                    .cause(e)
+                    .build();
         }
     }
 
@@ -335,8 +415,12 @@ public class TokenManager {
                     Instant.now().plusSeconds(CACHE_DURATION_SECONDS)));
         } catch (Exception e) {
             logger.error("Failed to save tokens: {}", e.getMessage());
-            throw new SchwabApiException(500, "Failed to save tokens: " + e.getMessage(), 
-                    "SAVE_ERROR", null, e);
+            throw SchwabApiException.builder()
+                    .statusCode(500)
+                    .message("Failed to save tokens")
+                    .errorCode("SAVE_ERROR")
+                    .cause(e)
+                    .build();
         } finally {
             lock.writeLock().unlock();
         }

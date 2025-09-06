@@ -10,10 +10,9 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.security.cert.X509Certificate;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * HTTP utility functions extracted from various client classes
@@ -58,18 +57,17 @@ public final class HttpUtils {
     }
     
     /**
-     * Convert OkHttp Headers to a single-value Map
-     * Takes the first value for each header name
+     * Convert OkHttp Headers to a single-value Map using only OkHttp methods
+     * Takes the first value for each header name and preserves original case
      * @param headers The OkHttp Headers object
      * @return Map with single values per header name
      */
     public static Map<String, String> headersToSingleValueMap(Headers headers) {
-        return headers.toMultimap().entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> entry.getValue().isEmpty() ? "" : entry.getValue().get(0),
-                        (v1, v2) -> v1 // Keep first value if duplicates
-                ));
+        Map<String, String> result = new HashMap<>();
+        for (String name : headers.names()) {
+            result.put(name, headers.get(name)); // get() returns first value automatically
+        }
+        return result;
     }
     
     /**
@@ -178,12 +176,27 @@ public final class HttpUtils {
     }
     
     /**
-     * Extract retry delay from headers (Retry-After)
+     * Extract retry delay from headers (Retry-After) using OkHttp Headers methods
      * @param headers The response headers
      * @param defaultSeconds Default value if header not present or invalid
      * @return Retry delay in seconds
      */
     public static long getRetryAfterSeconds(Map<String, String> headers, long defaultSeconds) {
+        String retryAfter = headers.get("Retry-After");
+        if (retryAfter == null) {
+            retryAfter = headers.get("retry-after"); // case-insensitive fallback
+        }
+        
+        return ConversionUtils.parseRetryAfterSeconds(retryAfter, defaultSeconds);
+    }
+    
+    /**
+     * Extract retry delay from OkHttp Headers object
+     * @param headers The OkHttp Headers object
+     * @param defaultSeconds Default value if header not present or invalid
+     * @return Retry delay in seconds
+     */
+    public static long getRetryAfterSeconds(Headers headers, long defaultSeconds) {
         String retryAfter = headers.get("Retry-After");
         if (retryAfter == null) {
             retryAfter = headers.get("retry-after"); // case-insensitive fallback
