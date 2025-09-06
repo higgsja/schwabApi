@@ -1,6 +1,5 @@
 package com.higgstx.schwabapi.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.higgstx.schwabapi.config.SchwabOAuthClient;
 import com.higgstx.schwabapi.config.SchwabApiProperties;
@@ -12,13 +11,12 @@ import com.higgstx.schwabapi.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Service class for market data operations - Updated to use SchwabApiException
+ * Service class for market data operations - Spring-managed only
  */
 public class MarketDataService implements AutoCloseable {
 
@@ -26,25 +24,21 @@ public class MarketDataService implements AutoCloseable {
     
     private final SchwabOAuthClient client;
     private final ObjectMapper objectMapper;
+    private final TokenManager tokenManager;
 
-    public MarketDataService() throws SchwabApiException {
-        // Use the instance-based SchwabOAuthClient with default configuration
-        this.client = new SchwabOAuthClient(true); // Enable logging
-        this.objectMapper = UtilityClass.getObjectMapper();
-    }
-
-    public MarketDataService(SchwabApiProperties properties) throws SchwabApiException {
-        // Use explicit configuration
+    /**
+     * Constructor with dependencies injected by Spring
+     */
+    public MarketDataService(SchwabApiProperties properties, TokenManager tokenManager) throws SchwabApiException {
         this.client = new SchwabOAuthClient(properties, true);
         this.objectMapper = UtilityClass.getObjectMapper();
+        this.tokenManager = tokenManager;
     }
 
     /**
      * Ensures the service is ready by attempting automated token refresh if needed.
      */
     public boolean ensureServiceReady(String operation) {
-        UtilityClass.logMethodEntry("MarketDataService", "ensureServiceReady", operation);
-        
         logger.debug("Checking service readiness for operation: {}", operation);
 
         String tokenStatus = getTokenStatus();
@@ -55,7 +49,7 @@ public class MarketDataService implements AutoCloseable {
 
             try {
                 // Try to load tokens with auto-refresh enabled
-                TokenResponse refreshedTokens = TokenManager.loadTokens(true);
+                TokenResponse refreshedTokens = tokenManager.loadTokens(true);
 
                 if (refreshedTokens != null && refreshedTokens.isAccessTokenValid()) {
                     logger.info("SUCCESS: Automated token refresh completed for operation: {}", operation);
@@ -64,7 +58,7 @@ public class MarketDataService implements AutoCloseable {
                 } else if (refreshedTokens != null && refreshedTokens.isRefreshTokenValid()) {
                     // Try force refresh if auto-refresh didn't work
                     logger.info("Auto-refresh didn't work for {}, attempting force refresh...", operation);
-                    refreshedTokens = TokenManager.forceTokenRefresh();
+                    refreshedTokens = tokenManager.forceTokenRefresh();
 
                     if (refreshedTokens != null && refreshedTokens.isAccessTokenValid()) {
                         logger.info("SUCCESS: Force token refresh completed for operation: {}", operation);
@@ -105,7 +99,7 @@ public class MarketDataService implements AutoCloseable {
     public List<DailyPriceData> getPriceHistoryData(String symbol, String periodType,
             int period, String frequencyType, int frequency) throws SchwabApiException {
         return getPriceHistoryData(symbol, periodType, period, frequencyType, frequency, 
-                TokenManager.getValidAccessToken());
+                tokenManager.getValidAccessToken());
     }
 
     public List<DailyPriceData> getPriceHistoryData(String symbol, String periodType,
@@ -137,12 +131,7 @@ public class MarketDataService implements AutoCloseable {
             throw e; // Re-throw SchwabApiException as-is
         } catch (Exception e) {
             logger.error("Error fetching data for symbol {}: {}", cleanSymbol, e.getMessage());
-            throw SchwabApiException.builder()
-                    .statusCode(0)
-                    .message("Failed to fetch price history for symbol: " + cleanSymbol)
-                    .errorCode("PRICE_HISTORY_ERROR")
-                    .cause(e)
-                    .build();
+            throw SchwabApiException.serverError("Failed to fetch price history for symbol: " + cleanSymbol + " - " + e.getMessage());
         }
     }
 
@@ -150,7 +139,7 @@ public class MarketDataService implements AutoCloseable {
      * Gets historical price data for multiple symbols (1 month of daily data per symbol)
      */
     public List<DailyPriceData> getBulkHistoricalData(String[] symbols) throws SchwabApiException {
-        return getBulkHistoricalData(symbols, TokenManager.getValidAccessToken());
+        return getBulkHistoricalData(symbols, tokenManager.getValidAccessToken());
     }
 
     public List<DailyPriceData> getBulkHistoricalData(String[] symbols, String accessToken) throws SchwabApiException {
@@ -202,7 +191,7 @@ public class MarketDataService implements AutoCloseable {
                 }
 
                 // Add delay between requests
-                UtilityClass.safeSleep(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+                UtilityClass.safeSleep(100);
 
             } catch (SchwabApiException e) {
                 logger.error("API exception fetching data for symbol {}: {}", cleanSymbol, e.getMessage(), e);
@@ -293,7 +282,7 @@ public class MarketDataService implements AutoCloseable {
      * Gets a single quote for a ticker symbol.
      */
     public QuoteData getQuote(String ticker) throws SchwabApiException {
-        return getQuote(ticker, TokenManager.getValidAccessToken());
+        return getQuote(ticker, tokenManager.getValidAccessToken());
     }
 
     public QuoteData getQuote(String ticker, String accessToken) throws SchwabApiException {
@@ -309,7 +298,7 @@ public class MarketDataService implements AutoCloseable {
      * Gets quotes for a list of symbols
      */
     public List<QuoteData> getQuotes(List<String> symbols) throws SchwabApiException {
-        return getQuotes(symbols, TokenManager.getValidAccessToken());
+        return getQuotes(symbols, tokenManager.getValidAccessToken());
     }
 
     public List<QuoteData> getQuotes(List<String> symbols, String accessToken) throws SchwabApiException {
@@ -352,12 +341,7 @@ public class MarketDataService implements AutoCloseable {
                     }
                 } catch (Exception e) {
                     logger.error("Error parsing API response: {}", e.getMessage());
-                    throw SchwabApiException.builder()
-                            .statusCode(response.getStatusCode())
-                            .message("Failed to parse quotes response")
-                            .errorCode("QUOTES_PARSING_ERROR")
-                            .cause(e)
-                            .build();
+                    throw SchwabApiException.serverError("Failed to parse quotes response: " + e.getMessage());
                 }
             } else {
                 logger.error("API call failed with status code: {}", response.getStatusCode());
@@ -375,7 +359,7 @@ public class MarketDataService implements AutoCloseable {
     public ApiResponse getPriceHistory(String symbol, String periodType, int period,
             String frequencyType, int frequency) throws SchwabApiException {
         return getPriceHistory(symbol, periodType, period, frequencyType, frequency, 
-                TokenManager.getValidAccessToken());
+                tokenManager.getValidAccessToken());
     }
 
     public ApiResponse getPriceHistory(String symbol, String periodType, int period,
@@ -387,7 +371,7 @@ public class MarketDataService implements AutoCloseable {
      * Gets market hours for a market type
      */
     public ApiResponse getMarketHours(String marketType) throws SchwabApiException {
-        return getMarketHours(marketType, TokenManager.getValidAccessToken());
+        return getMarketHours(marketType, tokenManager.getValidAccessToken());
     }
 
     public ApiResponse getMarketHours(String marketType, String accessToken) throws SchwabApiException {
@@ -398,7 +382,7 @@ public class MarketDataService implements AutoCloseable {
      * Check if service is ready (has valid tokens)
      */
     public boolean isReady() {
-        return TokenManager.hasValidTokens();
+        return tokenManager.hasValidTokens();
     }
 
     /**
@@ -406,7 +390,7 @@ public class MarketDataService implements AutoCloseable {
      */
     public String getTokenStatus() {
         try {
-            TokenResponse tokens = TokenManager.loadTokens(false);
+            TokenResponse tokens = tokenManager.loadTokens(false);
             if (tokens == null) {
                 return "NO TOKENS";
             }
@@ -414,6 +398,13 @@ public class MarketDataService implements AutoCloseable {
         } catch (Exception e) {
             return "ERROR: " + e.getMessage();
         }
+    }
+
+    /**
+     * Get the TokenManager instance (for advanced usage)
+     */
+    public TokenManager getTokenManager() {
+        return tokenManager;
     }
 
     @Override

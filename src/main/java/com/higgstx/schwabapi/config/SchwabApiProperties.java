@@ -1,15 +1,11 @@
 package com.higgstx.schwabapi.config;
 
 import com.higgstx.schwabapi.util.StringUtils;
-import com.higgstx.schwabapi.util.YamlUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
-
 /**
- * Instance-based configuration properties loaded from application.yml
- * Refactored to use utility package for common operations
+ * Configuration properties - now purely a data holder for explicit configuration
  */
 public class SchwabApiProperties {
     
@@ -23,25 +19,7 @@ public class SchwabApiProperties {
     private final int httpTimeoutMs;
     
     /**
-     * Default constructor - loads from application.yml in classpath
-     */
-    public SchwabApiProperties() {
-        Map<String, String> properties = YamlUtils.loadFromClasspath("application.yml");
-        
-        this.authUrl = StringUtils.validateRequired(properties.get("auth"), "schwab.api.urls.auth");
-        this.tokenUrl = StringUtils.validateRequired(properties.get("token"), "schwab.api.urls.token");
-        this.marketDataUrl = StringUtils.validateRequired(properties.get("marketData"), "schwab.api.urls.marketData");
-        this.defaultRedirectUri = StringUtils.validateRequired(properties.get("redirectUri"), "schwab.api.defaults.redirectUri");
-        this.defaultScope = StringUtils.validateRequired(properties.get("scope"), "schwab.api.defaults.scope");
-        
-        String timeoutStr = StringUtils.validateRequired(properties.get("httpTimeoutMs"), "schwab.api.defaults.httpTimeoutMs");
-        this.httpTimeoutMs = Integer.parseInt(timeoutStr);
-        
-        logger.info("SchwabApiProperties loaded successfully");
-    }
-    
-    /**
-     * Constructor with explicit values (for testing)
+     * Constructor with explicit values (Spring will provide these)
      */
     public SchwabApiProperties(String authUrl, String tokenUrl, String marketDataUrl, 
                              String redirectUri, String scope, int timeoutMs) {
@@ -51,9 +29,11 @@ public class SchwabApiProperties {
         this.defaultRedirectUri = StringUtils.validateRequired(redirectUri, "redirectUri");
         this.defaultScope = StringUtils.validateRequired(scope, "scope");
         this.httpTimeoutMs = timeoutMs;
+        
+        logger.info("SchwabApiProperties configured via Spring injection");
     }
     
-    // Getters
+    // Getters only - remove all YAML loading logic
     public String getAuthUrl() { return authUrl; }
     public String getTokenUrl() { return tokenUrl; }
     public String getMarketDataUrl() { return marketDataUrl; }

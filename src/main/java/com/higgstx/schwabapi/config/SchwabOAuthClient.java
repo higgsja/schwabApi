@@ -13,8 +13,7 @@ import java.time.Instant;
 import java.util.Map;
 
 /**
- * Instance-based Schwab OAuth 2.0 client with configurable endpoints
- * Updated to use SchwabApiException for proper error handling
+ * Schwab OAuth 2.0 client - Spring-managed configuration only
  */
 public class SchwabOAuthClient implements AutoCloseable {
 
@@ -29,21 +28,7 @@ public class SchwabOAuthClient implements AutoCloseable {
     private final OkHttpClient httpClient;
 
     /**
-     * Default constructor - loads configuration from application.yml
-     */
-    public SchwabOAuthClient() throws SchwabApiException {
-        this(loadDefaultProperties(), false);
-    }
-
-    /**
-     * Constructor with logging option - loads configuration from application.yml
-     */
-    public SchwabOAuthClient(boolean enableLogging) throws SchwabApiException {
-        this(loadDefaultProperties(), enableLogging);
-    }
-
-    /**
-     * Constructor with explicit configuration
+     * Constructor with explicit configuration (Spring will provide this)
      */
     public SchwabOAuthClient(SchwabApiProperties properties) throws SchwabApiException {
         this(properties, false);
@@ -70,14 +55,6 @@ public class SchwabOAuthClient implements AutoCloseable {
                     authUrl, tokenUrl, marketDataUrl);
         } catch (Exception e) {
             throw SchwabApiException.configurationError("Failed to initialize OAuth client: " + e.getMessage());
-        }
-    }
-
-    private static SchwabApiProperties loadDefaultProperties() throws SchwabApiException {
-        try {
-            return new SchwabApiProperties();
-        } catch (Exception e) {
-            throw SchwabApiException.configurationError("Failed to load default Schwab API properties from application.yml: " + e.getMessage());
         }
     }
 
@@ -134,7 +111,7 @@ public class SchwabOAuthClient implements AutoCloseable {
     public TokenResponse getTokens(String clientId, String clientSecret, String authCode, String redirectUri) 
             throws SchwabApiException {
         
-        UtilityClass.logMethodEntry("SchwabOAuthClient", "getTokens", clientId, "***", "***", redirectUri);
+        logger.debug("Exchanging authorization code for tokens");
         
         UtilityClass.validateParameter(clientId, "Client ID");
         UtilityClass.validateParameter(clientSecret, "Client secret");
@@ -158,7 +135,9 @@ public class SchwabOAuthClient implements AutoCloseable {
                 .build();
 
         try {
+            long startTime = System.currentTimeMillis();
             ApiResponse response = callApi(request);
+            long responseTime = System.currentTimeMillis() - startTime;
 
             if (!HttpUtils.isSuccessCode(response.getStatusCode())) {
                 throw SchwabApiException.fromApiResponse("exchange authorization code for tokens", response);
@@ -166,7 +145,6 @@ public class SchwabOAuthClient implements AutoCloseable {
 
             TokenResponse tokens = UtilityClass.getObjectMapper().readValue(response.getBody(), TokenResponse.class);
 
-            // Add debug logging
             logger.debug("Token response: access_token present: {}", tokens.getAccessToken() != null);
             logger.debug("Token response: refresh_token present: {}", tokens.getRefreshToken() != null);
             logger.debug("Token response: expires_in: {}", tokens.getExpiresIn());
@@ -174,7 +152,7 @@ public class SchwabOAuthClient implements AutoCloseable {
 
             logger.info("Raw token response: {}", response.getBody());
 
-            // Set expiration times using utility functions
+            // Set expiration times
             if (tokens.getExpiresIn() > 0) {
                 tokens.setExpiresAt(Instant.now().plusSeconds(tokens.getExpiresIn()));
             }
@@ -189,7 +167,7 @@ public class SchwabOAuthClient implements AutoCloseable {
             tokens.setSource(TokenResponse.TokenSource.AUTHORIZATION_CODE);
             tokens.setIssuedAt(UtilityClass.now());
 
-            UtilityClass.logMethodExit("SchwabOAuthClient", "getTokens", "TokenResponse[valid=" + tokens.isAccessTokenValid() + "]");
+            logger.debug("Token exchange completed successfully in {}ms", responseTime);
             return tokens;
             
         } catch (SchwabApiException e) {
@@ -197,12 +175,7 @@ public class SchwabOAuthClient implements AutoCloseable {
         } catch (IOException e) {
             throw SchwabApiException.networkError("exchange authorization code for tokens", e);
         } catch (Exception e) {
-            throw SchwabApiException.builder()
-                    .statusCode(0)
-                    .message("Failed to process token response")
-                    .errorCode("TOKEN_PROCESSING_ERROR")
-                    .cause(e)
-                    .build();
+            throw SchwabApiException.serverError("Failed to process token response: " + e.getMessage());
         }
     }
 
@@ -210,7 +183,7 @@ public class SchwabOAuthClient implements AutoCloseable {
      * Refresh tokens
      */
     public TokenResponse refreshTokens(String clientId, String clientSecret, String refreshToken) throws SchwabApiException {
-        UtilityClass.logMethodEntry("SchwabOAuthClient", "refreshTokens", clientId, "***", "***");
+        logger.debug("Refreshing tokens");
         
         UtilityClass.validateParameter(clientId, "Client ID");
         UtilityClass.validateParameter(clientSecret, "Client secret");
@@ -231,7 +204,9 @@ public class SchwabOAuthClient implements AutoCloseable {
                 .build();
 
         try {
+            long startTime = System.currentTimeMillis();
             ApiResponse response = callApi(request);
+            long responseTime = System.currentTimeMillis() - startTime;
 
             if (!HttpUtils.isSuccessCode(response.getStatusCode())) {
                 throw SchwabApiException.fromApiResponse("refresh tokens", response);
@@ -253,7 +228,7 @@ public class SchwabOAuthClient implements AutoCloseable {
             tokens.setSource(TokenResponse.TokenSource.REFRESH_TOKEN);
             tokens.setIssuedAt(UtilityClass.now());
 
-            UtilityClass.logMethodExit("SchwabOAuthClient", "refreshTokens", "TokenResponse[valid=" + tokens.isAccessTokenValid() + "]");
+            logger.debug("Token refresh completed successfully in {}ms", responseTime);
             return tokens;
             
         } catch (SchwabApiException e) {
@@ -261,12 +236,7 @@ public class SchwabOAuthClient implements AutoCloseable {
         } catch (IOException e) {
             throw SchwabApiException.networkError("refresh tokens", e);
         } catch (Exception e) {
-            throw SchwabApiException.builder()
-                    .statusCode(0)
-                    .message("Failed to refresh tokens")
-                    .errorCode("TOKEN_REFRESH_ERROR")
-                    .cause(e)
-                    .build();
+            throw SchwabApiException.serverError("Failed to refresh tokens: " + e.getMessage());
         }
     }
 
@@ -352,9 +322,9 @@ public class SchwabOAuthClient implements AutoCloseable {
     public String getDefaultScope() { return properties.getDefaultScope(); }
     public int getTimeoutMs() { return timeoutMs; }
 
-    // Helper methods using utilities
+    // Helper methods
     private ApiResponse callApi(Request request) throws IOException, SchwabApiException {
-        UtilityClass.MetricsContext metrics = UtilityClass.createMetricsContext("HTTP Request");
+        long startTime = System.currentTimeMillis();
         
         try (Response response = httpClient.newCall(request).execute()) {
             String responseBody = "";
@@ -364,9 +334,10 @@ public class SchwabOAuthClient implements AutoCloseable {
             }
 
             Map<String, String> headers = HttpUtils.headersToSingleValueMap(response.headers());
+            long responseTime = System.currentTimeMillis() - startTime;
             
-            metrics.stop("completed");
-            return new ApiResponse(response.code(), responseBody, headers, metrics.getElapsedMillis());
+            logger.debug("API call completed in {}ms", responseTime);
+            return new ApiResponse(response.code(), responseBody, headers, responseTime);
         }
     }
 
