@@ -5,7 +5,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Simplified string utility functions - only essential methods
+ * String utility functions for Schwab API operations
  */
 public final class StringUtils {
     
@@ -14,28 +14,18 @@ public final class StringUtils {
     }
     
     public static String lTrim(String input) {
-    if (input == null) return null;
-    return input.replaceFirst("^\\s+", "");
-}
+        if (input == null) return null;
+        return input.replaceFirst("^\\s+", "");
+    }
     
     /**
      * Validates that a string is not null or empty/whitespace
      */
     public static String validateRequired(String value, String propertyName) {
-        if (value == null || value.trim().isEmpty()) {
-            throw new RuntimeException("Required property missing or empty: " + propertyName);
+        if (isBlank(value)) {
+            throw new IllegalArgumentException(propertyName + " cannot be null or empty");
         }
         return value.trim();
-    }
-    
-    /**
-     * Validates a URL string
-     */
-    public static String validateUrl(String url, String name) {
-        if (url == null || url.trim().isEmpty()) {
-            throw new IllegalArgumentException(name + " cannot be null or empty");
-        }
-        return url.trim();
     }
     
     /**

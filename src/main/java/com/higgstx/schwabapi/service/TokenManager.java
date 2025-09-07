@@ -4,8 +4,8 @@ import com.higgstx.schwabapi.config.*;
 import com.higgstx.schwabapi.exception.SchwabApiException;
 import com.higgstx.schwabapi.model.TokenResponse;
 import com.higgstx.schwabapi.util.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 
 import java.time.Instant;
@@ -13,11 +13,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Instance-based token manager - Spring-managed configuration only
+ * Simplified token manager - works with simplified TokenResponse
  */
+@Slf4j
+@Getter
 public class TokenManager {
 
-    private static final Logger logger = LoggerFactory.getLogger(TokenManager.class);
     private static final long TOKEN_REFRESH_BUFFER_SECONDS = 300; // 5 minutes
     
     private final String tokenFile;
@@ -26,9 +27,6 @@ public class TokenManager {
     private final ReentrantLock refreshLock = new ReentrantLock();
     private volatile boolean refreshInProgress = false;
 
-    /**
-     * Create TokenManager with explicit credentials (Spring injection)
-     */
     public TokenManager(String tokenFile, String clientId, String clientSecret) throws SchwabApiException {
         this.tokenFile = tokenFile;
         this.clientId = clientId;
@@ -38,12 +36,9 @@ public class TokenManager {
             throw SchwabApiException.configurationError("Client ID and Secret cannot be null or empty");
         }
         
-        logger.info("TokenManager configured with tokenFile: {}", tokenFile);
+        log.info("TokenManager configured with tokenFile: {}", tokenFile);
     }
 
-    /**
-     * Get a valid access token, refreshing if necessary
-     */
     public String getValidAccessToken() throws SchwabApiException {
         TokenResponse tokens = loadTokensFromFile();
         
@@ -64,40 +59,31 @@ public class TokenManager {
         throw SchwabApiException.tokenError("All tokens expired. Re-authorization required.");
     }
 
-    /**
-     * Load tokens from file (core method)
-     */
     private TokenResponse loadTokensFromFile() {
         try {
             if (!FileUtils.isReadableFile(tokenFile)) {
-                logger.debug("Token file not found: {}", tokenFile);
+                log.debug("Token file not found: {}", tokenFile);
                 return null;
             }
 
             TokenResponse tokens = FileUtils.loadJson(tokenFile, UtilityClass.getObjectMapper(), TokenResponse.class);
             
             if (tokens != null && StringUtils.isBlank(tokens.getAccessToken())) {
-                logger.warn("Loaded tokens contain empty access token");
+                log.warn("Loaded tokens contain empty access token");
                 return null;
             }
 
             return tokens;
         } catch (Exception e) {
-            logger.error("Error loading tokens from file: {}", e.getMessage());
+            log.error("Error loading tokens from file: {}", e.getMessage());
             return null;
         }
     }
 
-    /**
-     * Load tokens without auto-refresh
-     */
     public TokenResponse loadTokens() {
         return loadTokensFromFile();
     }
 
-    /**
-     * Load tokens with optional auto-refresh
-     */
     public TokenResponse loadTokens(boolean autoRefresh) throws SchwabApiException {
         TokenResponse tokens = loadTokensFromFile();
         
@@ -109,28 +95,21 @@ public class TokenManager {
         return tokens;
     }
 
-    /**
-     * Save tokens to file
-     */
     public void saveTokens(TokenResponse tokens) throws SchwabApiException {
         UtilityClass.validateNotNull(tokens, "Tokens");
 
         try {
             FileUtils.saveJsonWithBackup(tokens, tokenFile, UtilityClass.getObjectMapper());
-            logger.info("Tokens saved to file: {}", tokenFile);
+            log.info("Tokens saved to file: {}", tokenFile);
         } catch (Exception e) {
-            logger.error("Failed to save tokens: {}", e.getMessage());
+            log.error("Failed to save tokens: {}", e.getMessage());
             throw SchwabApiException.serverError("Failed to save tokens: " + e.getMessage());
         }
     }
 
-    /**
-     * Refresh tokens using refresh token
-     */
     public TokenResponse refreshTokens(String refreshToken) throws SchwabApiException {
         UtilityClass.validateParameter(refreshToken, "Refresh token");
 
-        // Create ApiProperties for the SchwabOAuthClient
         SchwabApiProperties apiProperties = new SchwabApiProperties(
             "https://api.schwabapi.com/v1/oauth/authorize",
             "https://api.schwabapi.com/v1/oauth/token", 
@@ -151,14 +130,13 @@ public class TokenManager {
             if (newTokens.getRefreshTokenExpiresIn() > 0) {
                 newTokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(newTokens.getRefreshTokenExpiresIn()));
             } else {
-                // Default 7 days for refresh token if not specified
                 newTokens.setRefreshTokenExpiresAt(Instant.now().plusSeconds(7 * 24 * 60 * 60));
             }
 
             newTokens.setSource(TokenResponse.TokenSource.REFRESH_TOKEN);
             newTokens.setIssuedAt(Instant.now());
 
-            logger.info("Tokens refreshed successfully");
+            log.info("Tokens refreshed successfully");
             return newTokens;
             
         } catch (SchwabApiException e) {
@@ -168,9 +146,6 @@ public class TokenManager {
         }
     }
 
-    /**
-     * Asynchronous token refresh
-     */
     @Async
     public CompletableFuture<TokenResponse> refreshTokensAsync() throws SchwabApiException {
         return CompletableFuture.supplyAsync(() -> {
@@ -178,12 +153,12 @@ public class TokenManager {
                 refreshLock.lock();
                 try {
                     if (refreshInProgress) {
-                        logger.debug("Refresh already in progress, skipping");
+                        log.debug("Refresh already in progress, skipping");
                         return loadTokensFromFile();
                     }
                     
                     refreshInProgress = true;
-                    logger.info("Starting asynchronous token refresh");
+                    log.info("Starting asynchronous token refresh");
                     
                     TokenResponse tokens = loadTokensFromFile();
                     if (tokens == null || !tokens.isRefreshTokenValid()) {
@@ -193,7 +168,7 @@ public class TokenManager {
                     TokenResponse refreshed = refreshTokens(tokens.getRefreshToken());
                     saveTokens(refreshed);
                     
-                    logger.info("Asynchronous token refresh completed successfully");
+                    log.info("Asynchronous token refresh completed successfully");
                     return refreshed;
                     
                 } finally {
@@ -201,15 +176,12 @@ public class TokenManager {
                     refreshLock.unlock();
                 }
             } catch (Exception e) {
-                logger.error("Asynchronous token refresh failed: {}", e.getMessage());
+                log.error("Asynchronous token refresh failed: {}", e.getMessage());
                 throw new RuntimeException("Failed to refresh tokens asynchronously", e);
             }
         });
     }
 
-    /**
-     * Check if tokens need refresh soon with custom buffer
-     */
     public boolean needsRefreshSoon(long bufferSeconds) {
         try {
             TokenResponse tokens = loadTokensFromFile();
@@ -217,62 +189,44 @@ public class TokenManager {
                    tokens.isRefreshTokenValid() && 
                    tokens.willAccessTokenExpireSoon(bufferSeconds);
         } catch (Exception e) {
-            logger.debug("Error checking if tokens need refresh soon: {}", e.getMessage());
+            log.debug("Error checking if tokens need refresh soon: {}", e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Check if we have any tokens
-     */
     public boolean hasTokens() {
         return FileUtils.isReadableFile(tokenFile);
     }
 
-    /**
-     * Check if we have valid access tokens
-     */
     public boolean hasValidTokens() {
         try {
             TokenResponse tokens = loadTokensFromFile();
             return tokens != null && tokens.isAccessTokenValid();
         } catch (Exception e) {
-            logger.debug("Error checking token validity: {}", e.getMessage());
+            log.debug("Error checking token validity: {}", e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Check if we have usable tokens (valid refresh token)
-     */
     public boolean hasUsableTokens() {
         try {
             TokenResponse tokens = loadTokensFromFile();
             return tokens != null && tokens.isRefreshTokenValid();
         } catch (Exception e) {
-            logger.debug("Error checking token usability: {}", e.getMessage());
+            log.debug("Error checking token usability: {}", e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Check if tokens need refresh soon (using default buffer)
-     */
     public boolean needsRefresh() {
         return needsRefreshSoon(TOKEN_REFRESH_BUFFER_SECONDS);
     }
 
-    /**
-     * Helper method to check if specific tokens need refresh
-     */
     private boolean needsRefreshForTokens(TokenResponse tokens) {
         return tokens.isRefreshTokenValid() && 
                tokens.willAccessTokenExpireSoon(TOKEN_REFRESH_BUFFER_SECONDS);
     }
 
-    /**
-     * Force token refresh
-     */
     public TokenResponse forceTokenRefresh() throws SchwabApiException {
         refreshLock.lock();
         try {
@@ -290,57 +244,39 @@ public class TokenManager {
         }
     }
 
-    /**
-     * Force token refresh asynchronously
-     */
     @Async
     public CompletableFuture<TokenResponse> forceTokenRefreshAsync() {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return forceTokenRefresh();
             } catch (SchwabApiException e) {
-                logger.error("Async force refresh failed: {}", e.getMessage());
+                log.error("Async force refresh failed: {}", e.getMessage());
                 throw new RuntimeException("Failed to force refresh tokens", e);
             }
         });
     }
 
-    /**
-     * Get time until access token expiration in seconds
-     */
     public long getSecondsUntilExpiration() {
         try {
             TokenResponse tokens = loadTokensFromFile();
             return tokens != null ? tokens.getSecondsUntilAccessExpiry() : -1;
         } catch (Exception e) {
-            logger.debug("Error getting expiration time: {}", e.getMessage());
+            log.debug("Error getting expiration time: {}", e.getMessage());
             return -1;
         }
     }
 
-    /**
-     * Get time until refresh token expiration in seconds
-     */
     public long getSecondsUntilRefreshExpiration() {
         try {
             TokenResponse tokens = loadTokensFromFile();
             return tokens != null ? tokens.getSecondsUntilRefreshExpiry() : -1;
         } catch (Exception e) {
-            logger.debug("Error getting refresh expiration time: {}", e.getMessage());
+            log.debug("Error getting refresh expiration time: {}", e.getMessage());
             return -1;
         }
     }
 
-    /**
-     * Check if refresh is currently in progress
-     */
-    public boolean isRefreshInProgress() {
-        return refreshInProgress;
-    }
-
-    /**
-     * Show current token status
-     */
+    // Simplified status display
     public void showTokenStatus() {
         System.out.println("Token Status Report:");
         System.out.println("=".repeat(50));
@@ -354,7 +290,27 @@ public class TokenManager {
                 return;
             }
 
-            System.out.println(tokens.getDisplayInfo());
+            // Use simplified status display since getDisplayInfo() was removed
+            System.out.println("Status: " + tokens.getQuickStatus());
+            System.out.println("Access Token Valid: " + tokens.isAccessTokenValid());
+            System.out.println("Refresh Token Valid: " + tokens.isRefreshTokenValid());
+            
+            if (tokens.getExpiresAt() != null) {
+                System.out.println("Access Token Expires: " + tokens.getExpiresAt());
+                long secondsLeft = tokens.getSecondsUntilAccessExpiry();
+                if (secondsLeft > 0) {
+                    System.out.println("Time Remaining: " + formatDuration(secondsLeft));
+                }
+            }
+            
+            if (tokens.getRefreshTokenExpiresAt() != null) {
+                System.out.println("Refresh Token Expires: " + tokens.getRefreshTokenExpiresAt());
+                long refreshSecondsLeft = tokens.getSecondsUntilRefreshExpiry();
+                if (refreshSecondsLeft > 0) {
+                    System.out.println("Refresh Time Remaining: " + formatDuration(refreshSecondsLeft));
+                }
+            }
+            
             System.out.println("Can refresh: " + (StringUtils.hasContent(clientId) && StringUtils.hasContent(clientSecret)));
             System.out.println("Needs refresh soon: " + needsRefresh());
             System.out.println("Refresh in progress: " + refreshInProgress);
@@ -364,9 +320,19 @@ public class TokenManager {
         }
     }
 
-    /**
-     * Clear token files
-     */
+    // Simple duration formatting (since it was removed from TokenResponse)
+    private String formatDuration(long seconds) {
+        if (seconds < 60) {
+            return seconds + " seconds";
+        } else if (seconds < 3600) {
+            return (seconds / 60) + " minutes";
+        } else if (seconds < 86400) {
+            return (seconds / 3600) + " hours";
+        } else {
+            return (seconds / 86400) + " days";
+        }
+    }
+
     public void clearTokens() {
         try {
             if (FileUtils.safeDelete(tokenFile)) {
@@ -379,37 +345,22 @@ public class TokenManager {
         }
     }
 
-    /**
-     * Get token file path
-     */
     public String getTokenFilePath() {
         return FileUtils.getAbsolutePath(tokenFile);
     }
 
-    /**
-     * Show token file paths
-     */
     public void showTokenFilePaths() {
         System.out.println("Token file: " + getTokenFilePath());
     }
 
-    /**
-     * Clear token files (alias for clearTokens for compatibility)
-     */
     public void clearTokenFiles() {
         clearTokens();
     }
 
-    /**
-     * Get refresh buffer time in seconds
-     */
     public long getRefreshBufferSeconds() {
         return TOKEN_REFRESH_BUFFER_SECONDS;
     }
 
-    /**
-     * Set custom refresh buffer (for testing or special cases)
-     */
     public boolean needsRefreshWithCustomBuffer(long customBufferSeconds) {
         return needsRefreshSoon(customBufferSeconds);
     }

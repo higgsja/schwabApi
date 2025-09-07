@@ -1,33 +1,36 @@
 package com.higgstx.schwabapi.model;
 
+import lombok.Value;
 import java.util.Map;
 
+/**
+ * Immutable API response wrapper using @Value
+ */
+@Value
 public class ApiResponse {
-    private final int statusCode;
-    private final String body;
-    private final Map<String, String> headers;
-    private final long responseTimeMillis;
-
-    public ApiResponse(int statusCode, String body, Map<String, String> headers, long responseTimeMillis) {
-        this.statusCode = statusCode;
-        this.body = body;
-        this.headers = headers;
-        this.responseTimeMillis = responseTimeMillis;
+    int statusCode;
+    String body;
+    Map<String, String> headers;
+    long responseTimeMillis;
+    
+    /**
+     * Check if the response indicates success
+     */
+    public boolean isSuccess() {
+        return statusCode >= 200 && statusCode < 300;
     }
-
-    public int getStatusCode() {
-        return statusCode;
+    
+    /**
+     * Check if the response indicates a client error
+     */
+    public boolean isClientError() {
+        return statusCode >= 400 && statusCode < 500;
     }
-
-    public String getBody() {
-        return body;
-    }
-
-    public Map<String, String> getHeaders() {
-        return headers;
-    }
-
-    public long getResponseTimeMillis() {
-        return responseTimeMillis;
+    
+    /**
+     * Check if the response indicates a server error
+     */
+    public boolean isServerError() {
+        return statusCode >= 500 && statusCode < 600;
     }
 }

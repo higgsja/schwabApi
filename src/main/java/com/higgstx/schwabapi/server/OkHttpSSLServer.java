@@ -5,8 +5,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.tls.HandshakeCertificates;
 import okhttp3.tls.HeldCertificate;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URLDecoder;
@@ -18,9 +17,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * HTTPS OAuth callback server using OkHttp's built-in TLS support
  */
+@Slf4j
 public class OkHttpSSLServer implements AutoCloseable {
 
-    private static final Logger logger = LoggerFactory.getLogger(OkHttpSSLServer.class);
     private final CompletableFuture<String> authCodeFuture = new CompletableFuture<>();
     private MockWebServer server;
     private boolean isStarted = false;
@@ -30,7 +29,7 @@ public class OkHttpSSLServer implements AutoCloseable {
             server = new MockWebServer();
             
             // Generate self-signed certificate using OkHttp's utilities
-            logger.info("Generating self-signed certificate for localhost...");
+            log.info("Generating self-signed certificate for localhost...");
             HeldCertificate localhostCertificate = new HeldCertificate.Builder()
                 .addSubjectAlternativeName("127.0.0.1")
                 .addSubjectAlternativeName("localhost")
@@ -43,7 +42,7 @@ public class OkHttpSSLServer implements AutoCloseable {
 
             // Configure MockWebServer with SSL
             server.useHttps(serverCertificates.sslSocketFactory(), false);
-            logger.info("SSL configured successfully");
+            log.info("SSL configured successfully");
             
             // Queue responses for multiple requests
             for (int i = 0; i < 20; i++) {
@@ -58,12 +57,12 @@ public class OkHttpSSLServer implements AutoCloseable {
             server.start(8182);
             isStarted = true;
             
-            logger.info("HTTPS server started successfully on https://127.0.0.1:8182");
-            logger.info("Server URL: {}", server.url("/"));
+            log.info("HTTPS server started successfully on https://127.0.0.1:8182");
+            log.info("Server URL: {}", server.url("/"));
             
             // Start request handling
             CompletableFuture.runAsync(() -> {
-                logger.info("Request handler started");
+                log.info("Request handler started");
                 try {
                     while (isStarted && !authCodeFuture.isDone()) {
                         RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
@@ -71,12 +70,12 @@ public class OkHttpSSLServer implements AutoCloseable {
                             handleRequest(request);
                         }
                     }
-                    logger.info("Request handler finished");
+                    log.info("Request handler finished");
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    logger.info("Request handler interrupted");
+                    log.info("Request handler interrupted");
                 } catch (Exception e) {
-                    logger.error("Request handler error", e);
+                    log.error("Request handler error", e);
                     if (!authCodeFuture.isDone()) {
                         authCodeFuture.completeExceptionally(e);
                     }
@@ -87,17 +86,17 @@ public class OkHttpSSLServer implements AutoCloseable {
                 .orTimeout(timeout, unit)
                 .whenComplete((result, throwable) -> {
                     if (throwable instanceof java.util.concurrent.TimeoutException) {
-                        logger.warn("Authorization timed out after {} {}", timeout, unit);
+                        log.warn("Authorization timed out after {} {}", timeout, unit);
                     } else if (throwable != null) {
-                        logger.error("Authorization failed", throwable);
+                        log.error("Authorization failed", throwable);
                     } else if (result != null) {
-                        logger.info("Authorization completed successfully");
+                        log.info("Authorization completed successfully");
                     }
                     stopServer();
                 });
             
         } catch (Exception e) {
-            logger.error("Failed to start HTTPS server", e);
+            log.error("Failed to start HTTPS server", e);
             throw new IOException("Server startup failed: " + e.getMessage(), e);
         }
     }
@@ -106,27 +105,27 @@ public class OkHttpSSLServer implements AutoCloseable {
         String method = request.getMethod();
         String path = request.getPath();
         
-        logger.info("Received {} request to: {}", method, path);
+        log.info("Received {} request to: {}", method, path);
         
         try {
             if (path != null && path.contains("code=")) {
                 String authCode = extractAuthCode(path);
                 if (authCode != null && !authCode.isEmpty()) {
-                    logger.info("Authorization code extracted: {}...", 
+                    log.info("Authorization code extracted: {}...", 
                         authCode.substring(0, Math.min(10, authCode.length())));
                     authCodeFuture.complete(authCode);
                 } else {
-                    logger.error("Failed to extract authorization code from: {}", path);
+                    log.error("Failed to extract authorization code from: {}", path);
                 }
             } else if (path != null && path.contains("error=")) {
                 String error = extractErrorInfo(path);
-                logger.error("OAuth error received: {}", error);
+                log.error("OAuth error received: {}", error);
                 authCodeFuture.completeExceptionally(new RuntimeException("OAuth error: " + error));
             } else {
-                logger.debug("Non-OAuth request received: {} (this is normal for favicon, etc.)", path);
+                log.debug("Non-OAuth request received: {} (this is normal for favicon, etc.)", path);
             }
         } catch (Exception e) {
-            logger.error("Error processing request", e);
+            log.error("Error processing request", e);
         }
     }
 
@@ -146,7 +145,7 @@ public class OkHttpSSLServer implements AutoCloseable {
                 }
             }
         } catch (Exception e) {
-            logger.error("Error extracting auth code from: {}", path, e);
+            log.error("Error extracting auth code from: {}", path, e);
         }
         return null;
     }
@@ -173,7 +172,7 @@ public class OkHttpSSLServer implements AutoCloseable {
 
             return errorInfo.length() > 0 ? errorInfo.toString() : "Unknown error";
         } catch (Exception e) {
-            logger.error("Error extracting error info from: {}", path, e);
+            log.error("Error extracting error info from: {}", path, e);
             return "Error parsing error information";
         }
     }
@@ -243,9 +242,9 @@ public class OkHttpSSLServer implements AutoCloseable {
             try {
                 server.shutdown();
                 isStarted = false;
-                logger.info("HTTPS server stopped");
+                log.info("HTTPS server stopped");
             } catch (Exception e) {
-                logger.warn("Error stopping server", e);
+                log.warn("Error stopping server", e);
             }
         }
     }
