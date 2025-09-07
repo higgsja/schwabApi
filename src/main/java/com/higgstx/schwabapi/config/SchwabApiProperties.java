@@ -1,53 +1,37 @@
 package com.higgstx.schwabapi.config;
 
 import com.higgstx.schwabapi.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.Value;
+import lombok.extern.slf4j.Slf4j;
 
 /**
- * Configuration properties - now purely a data holder for explicit configuration
+ * Minimal configuration properties for the Schwab API library
+ * Pure data holder - Spring handles all the configuration binding
  */
+@Value
+@Slf4j
 public class SchwabApiProperties {
     
-    private static final Logger logger = LoggerFactory.getLogger(SchwabApiProperties.class);
-    
-    private final String authUrl;
-    private final String tokenUrl;
-    private final String marketDataUrl;
-    private final String defaultRedirectUri;
-    private final String defaultScope;
-    private final int httpTimeoutMs;
+    String authUrl;
+    String tokenUrl;
+    String marketDataUrl;
+    String defaultRedirectUri;
+    String defaultScope;
+    int httpTimeoutMs;
     
     /**
-     * Constructor with explicit values (Spring will provide these)
+     * Constructor with validation
      */
     public SchwabApiProperties(String authUrl, String tokenUrl, String marketDataUrl, 
                              String redirectUri, String scope, int timeoutMs) {
-        this.authUrl = StringUtils.validateRequired(authUrl, "authUrl");
-        this.tokenUrl = StringUtils.validateRequired(tokenUrl, "tokenUrl");
-        this.marketDataUrl = StringUtils.validateRequired(marketDataUrl, "marketDataUrl");
-        this.defaultRedirectUri = StringUtils.validateRequired(redirectUri, "redirectUri");
-        this.defaultScope = StringUtils.validateRequired(scope, "scope");
+        this.authUrl = StringUtils.validateRequired(authUrl, "Auth URL");
+        this.tokenUrl = StringUtils.validateRequired(tokenUrl, "Token URL");
+        this.marketDataUrl = StringUtils.validateRequired(marketDataUrl, "Market Data URL");
+        this.defaultRedirectUri = StringUtils.validateRequired(redirectUri, "Redirect URI");
+        this.defaultScope = StringUtils.validateRequired(scope, "Scope");
         this.httpTimeoutMs = timeoutMs;
         
-        logger.info("SchwabApiProperties configured via Spring injection");
-    }
-    
-    // Getters only - remove all YAML loading logic
-    public String getAuthUrl() { return authUrl; }
-    public String getTokenUrl() { return tokenUrl; }
-    public String getMarketDataUrl() { return marketDataUrl; }
-    public String getDefaultRedirectUri() { return defaultRedirectUri; }
-    public String getDefaultScope() { return defaultScope; }
-    public int getHttpTimeoutMs() { return httpTimeoutMs; }
-    
-    public void showLoadedProperties() {
-        System.out.println("=== Schwab API Properties ===");
-        System.out.println("Auth URL: " + authUrl);
-        System.out.println("Token URL: " + tokenUrl);
-        System.out.println("Market Data URL: " + marketDataUrl);
-        System.out.println("Default Redirect URI: " + defaultRedirectUri);
-        System.out.println("Default Scope: " + defaultScope);
-        System.out.println("HTTP Timeout: " + httpTimeoutMs + "ms");
+        log.debug("SchwabApiProperties initialized: authUrl={}, tokenUrl={}, marketDataUrl={}", 
+                 authUrl, tokenUrl, marketDataUrl);
     }
 }
