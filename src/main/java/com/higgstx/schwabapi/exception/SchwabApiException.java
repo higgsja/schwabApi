@@ -36,6 +36,7 @@ public class SchwabApiException extends Exception {
         this(0, message, "UNKNOWN_ERROR", new HashMap<>(), cause);
     }
     
+    // Factory method for API response errors
     public static SchwabApiException fromApiResponse(String operation, ApiResponse response) {
         Map<String, Object> details = JsonUtils.extractErrorDetails(response.getBody(), UtilityClass.getObjectMapper());
         String errorCode = details.containsKey("error") ? details.get("error").toString() : "HTTP_" + response.getStatusCode();
@@ -45,6 +46,7 @@ public class SchwabApiException extends Exception {
         return new SchwabApiException(response.getStatusCode(), message, errorCode, details, null);
     }
     
+    // Status check methods
     public boolean isRetryable() {
         return HttpUtils.isRetryableStatusCode(statusCode);
     }
@@ -57,32 +59,28 @@ public class SchwabApiException extends Exception {
         return statusCode == 429;
     }
     
-    // Factory methods
+    // Factory methods for common error types
     public static SchwabApiException notFound(String message) {
-        return new SchwabApiException(404, message, "NOT_FOUND", new HashMap<>(), null);
+        return new SchwabApiException(404, message, "NOT_FOUND", Map.of(), null);
     }
     
     public static SchwabApiException serverError(String message) {
-        return new SchwabApiException(500, message, "SERVER_ERROR", new HashMap<>(), null);
+        return new SchwabApiException(500, message, "SERVER_ERROR", Map.of(), null);
     }
     
-    public static SchwabApiException timeout(String message) {
-        return new SchwabApiException(408, message, "TIMEOUT", new HashMap<>(), null);
-    }
-    
-    public static SchwabApiException networkError(String message, Throwable cause) {
-        return new SchwabApiException(0, message, "NETWORK_ERROR", new HashMap<>(), cause);
+    public static SchwabApiException networkError(String operation, Throwable cause) {
+        return new SchwabApiException(0, UtilityClass.buildErrorMessage(operation, cause.getMessage()), "NETWORK_ERROR", Map.of(), cause);
     }
     
     public static SchwabApiException configurationError(String message) {
-        return new SchwabApiException(0, message, "CONFIGURATION_ERROR", new HashMap<>(), null);
+        return new SchwabApiException(0, message, "CONFIGURATION_ERROR", Map.of(), null);
     }
     
     public static SchwabApiException tokenError(String message) {
-        return new SchwabApiException(401, message, "TOKEN_ERROR", new HashMap<>(), null);
+        return new SchwabApiException(401, message, "TOKEN_ERROR", Map.of(), null);
     }
     
     public static SchwabApiException validationError(String message) {
-        return new SchwabApiException(400, message, "VALIDATION_ERROR", new HashMap<>(), null);
+        return new SchwabApiException(400, message, "VALIDATION_ERROR", Map.of(), null);
     }
 }

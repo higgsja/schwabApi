@@ -98,44 +98,7 @@ public final class FileUtils {
         }
     }
     
-    /**
-     * Clean up old backup files, keeping only the specified number
-     */
-    public static void cleanupOldBackups(String baseFilePath, int maxBackups) {
-        try {
-            Path baseFile = Paths.get(baseFilePath);
-            Path parentDir = baseFile.getParent();
-            if (parentDir == null) {
-                parentDir = Paths.get(".");
-            }
-            
-            final String backupPattern = baseFile.getFileName().toString() + ".backup";
-            
-            try (Stream<Path> stream = Files.list(parentDir)) {
-                stream.filter(path -> path.getFileName().toString().startsWith(backupPattern))
-                        .sorted((p1, p2) -> {
-                            try {
-                                return Files.getLastModifiedTime(p2).compareTo(
-                                        Files.getLastModifiedTime(p1));
-                            } catch (IOException e) {
-                                return 0;
-                            }
-                        })
-                        .skip(maxBackups)
-                        .forEach(path -> {
-                            try {
-                                Files.delete(path);
-                                log.debug("Deleted old backup: {}", path.getFileName());
-                            } catch (IOException e) {
-                                log.warn("Failed to delete old backup {}: {}", 
-                                           path.getFileName(), e.getMessage());
-                            }
-                        });
-            }
-        } catch (IOException e) {
-            log.debug("Error cleaning up backups for {}: {}", baseFilePath, e.getMessage());
-        }
-    }
+    
     
     /**
      * Write a string to a file, creating parent directories if needed

@@ -55,14 +55,7 @@ public final class JsonUtils {
         }
     }
     
-    /**
-     * Safely parse JSON string into a Map using standard ObjectMapper
-     * @param jsonString The JSON string to parse
-     * @return Map representation of the JSON, or empty map if parsing fails
-     */
-    public static Map<String, Object> parseJsonToMap(String jsonString) {
-        return parseJsonToMap(jsonString, createStandardObjectMapper());
-    }
+    
     
     /**
      * Extract error information from a JSON response

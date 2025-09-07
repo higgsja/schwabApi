@@ -75,13 +75,6 @@ public final class UtilityClass {
     }
     
     /**
-     * Calculate percentage between two numbers
-     */
-    public static double calculatePercentage(double value, double total) {
-        return total == 0 ? 0.0 : (value / total) * 100.0;
-    }
-    
-    /**
      * Safe sleep that handles interruption
      */
     public static void safeSleep(long millis) {

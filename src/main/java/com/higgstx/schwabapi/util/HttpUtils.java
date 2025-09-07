@@ -161,18 +161,7 @@ public final class HttpUtils {
         return token;
     }
 
-    /**
-     * Calculate exponential backoff delay with jitter
-     */
-    public static long calculateBackoffDelay(int attempt, long baseDelayMs,
-            double backoffMultiplier, long maxDelayMs) {
-        double delay = baseDelayMs * Math.pow(backoffMultiplier, attempt);
-        long delayMs = Math.min((long) delay, maxDelayMs);
-
-        // Add jitter to prevent thundering herd (up to 10% of the delay)
-        long jitter = (long) (delayMs * 0.1 * Math.random());
-        return delayMs + jitter;
-    }
+  
 
     /**
      * Check if an exception indicates a retryable network condition
