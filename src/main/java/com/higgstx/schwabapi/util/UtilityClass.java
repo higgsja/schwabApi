@@ -1,40 +1,16 @@
 package com.higgstx.schwabapi.util;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
 /**
- * Simplified utility class with only essential functions
+ * Simplified utility class with only essential functions - no Jackson dependencies
  */
 public final class UtilityClass {
     
-    // Single shared ObjectMapper instance
-    private static final ObjectMapper OBJECT_MAPPER = createObjectMapper();
-    
     private UtilityClass() {
         // Utility class - prevent instantiation
-    }
-    
-    /**
-     * Get the shared ObjectMapper instance
-     */
-    public static ObjectMapper getObjectMapper() {
-        return OBJECT_MAPPER;
-    }
-    
-    /**
-     * Create a configured ObjectMapper for JSON processing
-     */
-    private static ObjectMapper createObjectMapper() {
-        return new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
     
     /**

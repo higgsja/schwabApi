@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>Schwab API Library</name>
-    <description>Java library for Schwab API integration with OAuth, rate limiting, and error handling</description>
+    <description>Java library for Schwab API integration with OAuth, rate limiting, and error handling - Jackson-free version</description>
     <url>https://github.com/higgstx/schwab-api-lib</url>
 
     <properties>
@@ -20,10 +20,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         
         <!-- Core dependency versions -->
-        <jackson.version>2.16.1</jackson.version>
         <okhttp.version>4.12.0</okhttp.version>
         <slf4j.version>2.0.12</slf4j.version>
-        <logback.version>1.4.14</logback.version>
+        <!-- REMOVED: logback.version - let consuming application decide -->
         <lombok.version>1.18.38</lombok.version>
         
         <!-- Test dependency versions -->
@@ -57,31 +56,17 @@
             <version>${okhttp.version}</version>
         </dependency>
 
-        <!-- JSON Processing -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
-        </dependency>
+        <!-- NOTE: Jackson dependencies removed - using SimpleJsonParser instead -->
         
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
-            <version>${jackson.version}</version>
-        </dependency>
-        
-        <!-- Logging -->
+        <!-- Logging API - provided scope, let consuming application decide version -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>${slf4j.version}</version>
+            <scope>provided</scope>
         </dependency>
         
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <version>${logback.version}</version>
-        </dependency>
+        <!-- REMOVED: logback-classic - consuming application should provide SLF4J implementation -->
         
         <!-- Lombok -->
         <dependency>
@@ -99,7 +84,8 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- Test Dependencies -->
+        <!-- Test Dependencies - no logging implementation, let consuming app decide -->
+        
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -128,7 +114,7 @@
             <scope>test</scope>
         </dependency>
         
-        <!-- OkHttp MockWebServer for testing -->
+        <!-- OkHttp MockWebServer -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>

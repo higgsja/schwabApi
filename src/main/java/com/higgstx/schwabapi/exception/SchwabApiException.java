@@ -2,7 +2,7 @@ package com.higgstx.schwabapi.exception;
 
 import com.higgstx.schwabapi.model.ApiResponse;
 import com.higgstx.schwabapi.util.HttpUtils;
-import com.higgstx.schwabapi.util.JsonUtils;
+import com.higgstx.schwabapi.util.SimpleJsonParser;
 import com.higgstx.schwabapi.util.UtilityClass;
 import lombok.Getter;
 
@@ -10,7 +10,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Exception for Schwab API errors using @Getter
+ * Exception for Schwab API errors - now uses SimpleJsonParser instead of Jackson
  */
 @Getter
 public class SchwabApiException extends Exception {
@@ -38,9 +38,9 @@ public class SchwabApiException extends Exception {
     
     // Factory method for API response errors
     public static SchwabApiException fromApiResponse(String operation, ApiResponse response) {
-        Map<String, Object> details = JsonUtils.extractErrorDetails(response.getBody(), UtilityClass.getObjectMapper());
+        Map<String, Object> details = SimpleJsonParser.extractErrorDetails(response.getBody());
         String errorCode = details.containsKey("error") ? details.get("error").toString() : "HTTP_" + response.getStatusCode();
-        String errorMessage = JsonUtils.extractErrorMessage(response.getBody(), UtilityClass.getObjectMapper());
+        String errorMessage = SimpleJsonParser.extractErrorMessage(response.getBody());
         String message = UtilityClass.buildErrorMessage(operation, errorMessage);
         
         return new SchwabApiException(response.getStatusCode(), message, errorCode, details, null);
