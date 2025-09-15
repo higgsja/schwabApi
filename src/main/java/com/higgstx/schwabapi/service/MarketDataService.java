@@ -122,8 +122,12 @@ public class MarketDataService implements AutoCloseable
         }
     }
 
-    public List<DailyPriceData> getBulkHistoricalData(String[] symbols) throws
-            SchwabApiException
+    /*
+    if prevDate is null, all historical data goes into the array
+    else only data >= prevDate will be stored
+     */
+    public List<DailyPriceData> getBulkHistoricalData(String[] symbols,
+            LocalDate prevDate) throws SchwabApiException
     {
         UtilityClass.validateNotNull(symbols, "Symbols array");
         if (symbols.length == 0)
@@ -133,7 +137,7 @@ public class MarketDataService implements AutoCloseable
         }
         ensureServiceReady("get bulk historical data");
         List<DailyPriceData> allData = new ArrayList<>();
-        int callCount = 0;
+        int symbolCount = 0;
         Instant startInstant = Instant.now();
 
         for (String symbol : symbols)
@@ -147,15 +151,43 @@ public class MarketDataService implements AutoCloseable
             {
                 List<DailyPriceData> symbolData = getPriceHistoryData(
                         cleanSymbol, "month", 1, "daily", 1);
-                allData.addAll(symbolData);
-                callCount++;
 
-                // Rate limiting - delay every 50 calls
-                if (callCount % 80 == 0)
+                
+                if (prevDate == null)
+                {
+                    // without a previous date, just add all historical quotes
+                    //todo: assuming that if first quote is ok they all are
+                    if (symbolData.get(0).isSuccess())
+                    {
+                        allData.addAll(symbolData);
+                    }
+                }
+                else
+                {
+                    for (DailyPriceData checkData : symbolData)
+                    {
+//                        if (checkData.getLocalDate() == null)
+//                        {
+//                            int i = 0;
+//                        }
+                        // symbolData is in ascending date order
+                        // this has to run over 20 checks to get to the one we want
+                        if (checkData.isSuccess()
+                                && checkData.getLocalDate().compareTo(prevDate) >= 0)
+                        {
+                            allData.add(checkData);
+                        }
+                    }
+                }
+                symbolCount++;
+
+//                if (symbolCount > 100) break;
+                // Rate limiting - delay
+                if (symbolCount % 80 == 0)
                 {
                     System.out.println("Sleep: " + cleanSymbol
-                    + " Array size: " + allData.size());
-                    UtilityClass.safeSleep(7000);
+                            + " Symbol count: " + allData.size());
+                    UtilityClass.safeSleep(8000);
                 }
             }
             catch (SchwabApiException e)
@@ -164,10 +196,10 @@ public class MarketDataService implements AutoCloseable
                         + e.getMessage()));
                 System.out.println("Done broke: "
                         + cleanSymbol + " " + e.getMessage()
-                        + " callCount: " + callCount
+                        + " callCount: " + symbolCount
                         + " Array size: " + allData.size());
 
-                callCount++; // Still count failed calls toward the rate limit
+                symbolCount++; // Still count failed calls toward the rate limit
             }
         }
         Instant endInstant = Instant.now();
@@ -176,6 +208,63 @@ public class MarketDataService implements AutoCloseable
         System.out.println("Duration: " + Duration.between(startInstant,
                 endInstant) + "\n\n");
         return allData;
+    }
+
+    public List<DailyPriceData> getBulkHistoricalData(String[] symbols) throws
+            SchwabApiException
+    {
+        return this.getBulkHistoricalData(symbols, null);
+//        UtilityClass.validateNotNull(symbols, "Symbols array");
+//        if (symbols.length == 0)
+//        {
+//            throw SchwabApiException.validationError(
+//                    "Symbols array cannot be empty");
+//        }
+//        ensureServiceReady("get bulk historical data");
+//        List<DailyPriceData> allData = new ArrayList<>();
+//        int callCount = 0;
+//        Instant startInstant = Instant.now();
+//
+//        for (String symbol : symbols)
+//        {
+//            String cleanSymbol = StringUtils.normalizeSymbol(symbol);
+//            if (cleanSymbol == null)
+//            {
+//                continue;
+//            }
+//            try
+//            {
+//                List<DailyPriceData> symbolData = getPriceHistoryData(
+//                        cleanSymbol, "month", 1, "daily", 1);
+//                allData.addAll(symbolData);
+//                callCount++;
+//
+//                // Rate limiting - delay every 50 calls
+//                if (callCount % 80 == 0)
+//                {
+//                    System.out.println("Sleep: " + cleanSymbol
+//                            + " Array size: " + allData.size());
+//                    UtilityClass.safeSleep(7000);
+//                }
+//            }
+//            catch (SchwabApiException e)
+//            {
+//                allData.add(DailyPriceData.error(cleanSymbol, "Exception: "
+//                        + e.getMessage()));
+//                System.out.println("Done broke: "
+//                        + cleanSymbol + " " + e.getMessage()
+//                        + " callCount: " + callCount
+//                        + " Array size: " + allData.size());
+//
+//                callCount++; // Still count failed calls toward the rate limit
+//            }
+//        }
+//        Instant endInstant = Instant.now();
+//
+//        System.out.println("Number of Symbols: " + allData.size() + "\n");
+//        System.out.println("Duration: " + Duration.between(startInstant,
+//                endInstant) + "\n\n");
+//        return allData;
     }
 
     // Delegate methods for backward compatibility
