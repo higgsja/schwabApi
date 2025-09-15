@@ -9,10 +9,12 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Simplified token manager - handles token lifecycle with automatic refresh
+ * Now uses SimpleJsonParser instead of Jackson
  */
 @Slf4j
 @Getter
@@ -84,7 +86,9 @@ public class TokenManager {
         UtilityClass.validateNotNull(tokens, "Tokens");
 
         try {
-            FileUtils.saveJsonWithBackup(tokens, tokenFile, UtilityClass.getObjectMapper());
+            // Convert TokenResponse to Map for JSON serialization
+            Map<String, Object> tokenMap = tokens.toMap();
+            FileUtils.saveJsonWithBackup(tokenMap, tokenFile);
             log.info("Tokens saved to file: {}", tokenFile);
         } catch (IOException e) {
             throw SchwabApiException.serverError("Failed to save tokens: " + e.getMessage());
@@ -102,14 +106,47 @@ public class TokenManager {
             SchwabApiProperties apiProperties = createApiProperties();
 
             try (SchwabOAuthClient client = new SchwabOAuthClient(apiProperties)) {
-                TokenResponse newTokens = client.refreshTokens(clientId, clientSecret, refreshToken);
-                setTokenExpirationTimes(newTokens);
-                newTokens.setSource(TokenResponse.TokenSource.REFRESH_TOKEN);
-                newTokens.setIssuedAt(Instant.now());
+                // Get the raw API response
+                String clientBasicAuth = HttpUtils.createBasicAuthHeader(clientId, clientSecret);
+                
+                // Build the request manually to get JSON response
+                okhttp3.RequestBody formBody = new okhttp3.FormBody.Builder()
+                        .add("grant_type", "refresh_token")
+                        .add("refresh_token", refreshToken)
+                        .build();
 
-                log.info("Tokens refreshed successfully");
-                return newTokens;
+                okhttp3.Request request = new okhttp3.Request.Builder()
+                        .url(apiProperties.getTokenUrl())
+                        .header("Authorization", "Basic " + clientBasicAuth)
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .post(formBody)
+                        .build();
+
+                okhttp3.OkHttpClient httpClient = HttpUtils.buildHttpClient(apiProperties.getHttpTimeoutMs(), false);
+                
+                try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+                    if (!response.isSuccessful()) {
+                        throw SchwabApiException.serverError("Token refresh failed with status: " + response.code());
+                    }
+                    
+                    String responseBody = response.body() != null ? response.body().string() : "";
+                    Map<String, Object> tokenData = SimpleJsonParser.parseToMap(responseBody);
+                    
+                    TokenResponse newTokens = TokenResponse.fromMap(tokenData);
+                    if (newTokens == null) {
+                        throw SchwabApiException.serverError("Failed to parse token response");
+                    }
+                    
+                    setTokenExpirationTimes(newTokens);
+                    newTokens.setSource(TokenResponse.TokenSource.REFRESH_TOKEN);
+                    newTokens.setIssuedAt(Instant.now());
+
+                    log.info("Tokens refreshed successfully");
+                    return newTokens;
+                }
             }
+        } catch (Exception e) {
+            throw SchwabApiException.serverError("Token refresh failed: " + e.getMessage());
         } finally {
             refreshLock.unlock();
         }
@@ -216,7 +253,14 @@ public class TokenManager {
                 return null;
             }
 
-            TokenResponse tokens = FileUtils.loadJson(tokenFile, UtilityClass.getObjectMapper(), TokenResponse.class);
+            String content = FileUtils.readString(tokenFile);
+            if (StringUtils.isBlank(content)) {
+                log.warn("Token file is empty: {}", tokenFile);
+                return null;
+            }
+
+            Map<String, Object> tokenData = SimpleJsonParser.parseToMap(content);
+            TokenResponse tokens = TokenResponse.fromMap(tokenData);
             
             if (tokens != null && StringUtils.isBlank(tokens.getAccessToken())) {
                 log.warn("Loaded tokens contain empty access token");

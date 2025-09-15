@@ -10,7 +10,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Essential validation testing for utility classes
+ * Essential validation testing for utility classes - now without Jackson dependencies
  */
 @DisplayName("Core Validation Tests")
 class SimplifiedValidationTest {
@@ -144,5 +144,63 @@ class SimplifiedValidationTest {
             assertEquals(hasContent, !isBlank, 
                 "hasContent and isBlank should be opposite for: '" + test + "'");
         }
+    }
+
+    @Test
+    @DisplayName("JSON parsing should work with SimpleJsonParser")
+    void testJsonParsing() {
+        String validJson = "{\"symbol\": \"AAPL\", \"price\": 150.25}";
+        
+        assertTrue(SimpleJsonParser.isValidJson(validJson));
+        var parsed = SimpleJsonParser.parseToMap(validJson);
+        assertEquals("AAPL", parsed.get("symbol"));
+        assertEquals(150.25, ((Number) parsed.get("price")).doubleValue());
+        
+        // Invalid JSON should return empty map
+        var invalid = SimpleJsonParser.parseToMap("invalid json");
+        assertTrue(invalid.isEmpty());
+    }
+
+    @Test
+    @DisplayName("JSON serialization should work correctly")
+    void testJsonSerialization() {
+        var data = java.util.Map.of("test", "value", "number", 42);
+        String json = SimpleJsonParser.toJsonString(data);
+        
+        assertNotNull(json);
+        assertTrue(json.contains("\"test\""));
+        assertTrue(json.contains("\"value\""));
+        assertTrue(json.contains("42"));
+    }
+
+    @Test
+    @DisplayName("Error extraction should work with SimpleJsonParser")
+    void testErrorExtraction() {
+        String errorJson = "{\"error\": \"test_error\", \"error_description\": \"Test description\"}";
+        
+        String errorMsg = SimpleJsonParser.extractErrorMessage(errorJson);
+        assertEquals("Test description", errorMsg);
+        
+        var errorDetails = SimpleJsonParser.extractErrorDetails(errorJson);
+        assertEquals("test_error", errorDetails.get("error"));
+        assertEquals("Test description", errorDetails.get("description"));
+    }
+
+    @Test
+    @DisplayName("UtilityClass helper methods should work correctly")
+    void testUtilityClassMethods() {
+        // Test timestamp conversion
+        Long timestamp = System.currentTimeMillis();
+        var localDate = UtilityClass.timestampToLocalDate(timestamp);
+        assertNotNull(localDate);
+        
+        // Test error message building
+        String errorMsg = UtilityClass.buildErrorMessage("test operation", "test cause");
+        assertTrue(errorMsg.contains("test operation"));
+        assertTrue(errorMsg.contains("test cause"));
+        
+        // Test current time
+        var now = UtilityClass.now();
+        assertNotNull(now);
     }
 }

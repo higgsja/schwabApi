@@ -13,7 +13,7 @@ import java.time.Instant;
 import java.util.Map;
 
 /**
- * Schwab OAuth 2.0 client - Spring-managed configuration only
+ * Schwab OAuth 2.0 client - now uses SimpleJsonParser instead of Jackson
  */
 @Slf4j
 @Getter
@@ -143,7 +143,13 @@ public class SchwabOAuthClient implements AutoCloseable {
                 throw SchwabApiException.fromApiResponse("exchange authorization code for tokens", response);
             }
 
-            TokenResponse tokens = UtilityClass.getObjectMapper().readValue(response.getBody(), TokenResponse.class);
+            // Parse JSON response using SimpleJsonParser
+            Map<String, Object> tokenData = SimpleJsonParser.parseToMap(response.getBody());
+            TokenResponse tokens = TokenResponse.fromMap(tokenData);
+
+            if (tokens == null) {
+                throw SchwabApiException.serverError("Failed to parse token response");
+            }
 
             log.debug("Token response: access_token present: {}", tokens.getAccessToken() != null);
             log.debug("Token response: refresh_token present: {}", tokens.getRefreshToken() != null);
@@ -212,7 +218,13 @@ public class SchwabOAuthClient implements AutoCloseable {
                 throw SchwabApiException.fromApiResponse("refresh tokens", response);
             }
 
-            TokenResponse tokens = UtilityClass.getObjectMapper().readValue(response.getBody(), TokenResponse.class);
+            // Parse JSON response using SimpleJsonParser
+            Map<String, Object> tokenData = SimpleJsonParser.parseToMap(response.getBody());
+            TokenResponse tokens = TokenResponse.fromMap(tokenData);
+
+            if (tokens == null) {
+                throw SchwabApiException.serverError("Failed to parse token refresh response");
+            }
 
             if (tokens.getExpiresIn() > 0) {
                 tokens.setExpiresAt(Instant.now().plusSeconds(tokens.getExpiresIn()));
