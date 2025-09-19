@@ -14,7 +14,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Simplified token manager - handles token lifecycle with automatic refresh
- * Now uses SimpleJsonParser instead of Jackson
+ * Now uses SimpleJsonParser instead of Jackson and caches tokens in memory
  */
 @Slf4j
 @Getter
@@ -26,11 +26,17 @@ public class TokenManager {
     private final String clientId;
     private final String clientSecret;
     private final ReentrantLock refreshLock = new ReentrantLock();
+    
+    // In-memory token cache
+    private volatile TokenResponse currentTokens;
 
     public TokenManager(String tokenFile, String clientId, String clientSecret) throws SchwabApiException {
         this.tokenFile = StringUtils.validateRequired(tokenFile, "Token file path");
         this.clientId = StringUtils.validateRequired(clientId, "Client ID");
         this.clientSecret = StringUtils.validateRequired(clientSecret, "Client Secret");
+        
+        // Load tokens from file into memory on initialization
+        this.currentTokens = loadTokensFromFile();
         
         log.info("TokenManager configured with tokenFile: {}", tokenFile);
     }
@@ -39,7 +45,7 @@ public class TokenManager {
      * Get a valid access token, refreshing if necessary
      */
     public String getValidAccessToken() throws SchwabApiException {
-        TokenResponse tokens = loadTokens();
+        TokenResponse tokens = getCurrentTokens();
         
         if (tokens == null) {
             throw SchwabApiException.tokenError("No tokens found. Authorization required.");
@@ -59,6 +65,18 @@ public class TokenManager {
     }
 
     /**
+     * Get current tokens from memory without file access
+     * 
+     * This method returns the tokens currently held in memory by the TokenManager.
+     * It does not read from the file and does not perform any automatic refresh.
+     * 
+     * @return TokenResponse containing current tokens, or null if no tokens are cached
+     */
+    public TokenResponse getCurrentTokens() {
+        return currentTokens;
+    }
+
+    /**
      * Load tokens from file
      */
     public TokenResponse loadTokens() throws SchwabApiException {
@@ -71,6 +89,9 @@ public class TokenManager {
     public TokenResponse loadTokens(boolean autoRefresh) throws SchwabApiException {
         TokenResponse tokens = loadTokensFromFile();
         
+        // Update in-memory cache
+        this.currentTokens = tokens;
+        
         if (autoRefresh && tokens != null && needsRefresh(tokens)) {
             tokens = refreshTokens(tokens.getRefreshToken());
             saveTokens(tokens);
@@ -80,7 +101,7 @@ public class TokenManager {
     }
 
     /**
-     * Save tokens to file
+     * Save tokens to file and update in-memory cache
      */
     public void saveTokens(TokenResponse tokens) throws SchwabApiException {
         UtilityClass.validateNotNull(tokens, "Tokens");
@@ -89,7 +110,11 @@ public class TokenManager {
             // Convert TokenResponse to Map for JSON serialization
             Map<String, Object> tokenMap = tokens.toMap();
             FileUtils.saveJsonWithBackup(tokenMap, tokenFile);
-            log.info("Tokens saved to file: {}", tokenFile);
+            
+            // Update in-memory cache
+            this.currentTokens = tokens;
+            
+            log.info("Tokens saved to file and cached in memory: {}", tokenFile);
         } catch (IOException e) {
             throw SchwabApiException.serverError("Failed to save tokens: " + e.getMessage());
         }
@@ -124,6 +149,7 @@ public class TokenManager {
 
                 okhttp3.OkHttpClient httpClient = HttpUtils.buildHttpClient(apiProperties.getHttpTimeoutMs(), false);
                 
+                // request has userid and password as blank
                 try (okhttp3.Response response = httpClient.newCall(request).execute()) {
                     if (!response.isSuccessful()) {
                         throw SchwabApiException.serverError("Token refresh failed with status: " + response.code());
@@ -141,7 +167,10 @@ public class TokenManager {
                     newTokens.setSource(TokenResponse.TokenSource.REFRESH_TOKEN);
                     newTokens.setIssuedAt(Instant.now());
 
-                    log.info("Tokens refreshed successfully");
+                    // Update in-memory cache immediately
+                    this.currentTokens = newTokens;
+
+                    log.info("Tokens refreshed successfully and cached in memory");
                     return newTokens;
                 }
             }
@@ -156,7 +185,13 @@ public class TokenManager {
      * Force token refresh (for manual refresh operations)
      */
     public TokenResponse forceTokenRefresh() throws SchwabApiException {
-        TokenResponse tokens = loadTokensFromFile();
+        TokenResponse tokens = getCurrentTokens();
+        
+        if (tokens == null) {
+            // Try loading from file if no tokens in memory
+            tokens = loadTokensFromFile();
+            this.currentTokens = tokens;
+        }
         
         if (tokens == null || !tokens.isRefreshTokenValid()) {
             throw SchwabApiException.tokenError("No valid refresh token available");
@@ -167,10 +202,27 @@ public class TokenManager {
         return refreshed;
     }
 
+    /**
+     * Clear tokens from both memory and file
+     */
+    public void clearTokens() {
+        try {
+            // Clear from memory first
+            this.currentTokens = null;
+            
+            // Then delete file
+            if (FileUtils.safeDelete(tokenFile)) {
+                log.info("Deleted token file and cleared memory cache: {}", tokenFile);
+            }
+        } catch (Exception e) {
+            log.warn("Error deleting token file: {}", e.getMessage());
+        }
+    }
+
     // Status check methods
     public boolean hasValidTokens() {
         try {
-            TokenResponse tokens = loadTokensFromFile();
+            TokenResponse tokens = getCurrentTokens();
             return tokens != null && tokens.isAccessTokenValid();
         } catch (Exception e) {
             log.debug("Error checking token validity: {}", e.getMessage());
@@ -180,7 +232,7 @@ public class TokenManager {
 
     public boolean hasUsableTokens() {
         try {
-            TokenResponse tokens = loadTokensFromFile();
+            TokenResponse tokens = getCurrentTokens();
             return tokens != null && tokens.isRefreshTokenValid();
         } catch (Exception e) {
             log.debug("Error checking token usability: {}", e.getMessage());
@@ -190,22 +242,11 @@ public class TokenManager {
 
     public boolean needsRefresh() {
         try {
-            TokenResponse tokens = loadTokensFromFile();
+            TokenResponse tokens = getCurrentTokens();
             return tokens != null && needsRefresh(tokens);
         } catch (Exception e) {
             log.debug("Error checking if tokens need refresh: {}", e.getMessage());
             return false;
-        }
-    }
-
-    // Utility methods
-    public void clearTokens() {
-        try {
-            if (FileUtils.safeDelete(tokenFile)) {
-                log.info("Deleted token file: {}", tokenFile);
-            }
-        } catch (Exception e) {
-            log.warn("Error deleting token file: {}", e.getMessage());
         }
     }
 
@@ -218,10 +259,10 @@ public class TokenManager {
         System.out.println("=".repeat(50));
 
         try {
-            TokenResponse tokens = loadTokensFromFile();
+            TokenResponse tokens = getCurrentTokens();
 
             if (tokens == null) {
-                System.out.println("No tokens found");
+                System.out.println("No tokens found in memory");
                 System.out.println("File: " + getTokenFilePath());
                 return;
             }
