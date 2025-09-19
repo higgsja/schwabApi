@@ -287,6 +287,7 @@ public class MarketDataService implements AutoCloseable
     // Status methods
     public boolean isReady()
     {
+        //hasvalidtokens returns false
         return tokenManager != null && tokenManager.hasValidTokens();
     }
 
