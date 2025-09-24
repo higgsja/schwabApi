@@ -11,13 +11,14 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+import lombok.*;
 
 /**
  * Simplified token manager - handles token lifecycle with automatic refresh
  * Now uses SimpleJsonParser instead of Jackson and caches tokens in memory
  */
 @Slf4j
-@Getter
+@Getter @Setter
 public class TokenManager {
 
     private static final long TOKEN_REFRESH_BUFFER_SECONDS = 300; // 5 minutes

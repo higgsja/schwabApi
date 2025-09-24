@@ -184,13 +184,32 @@
         <!-- Development profile with additional plugins -->
         <profile>
             <id>dev</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <!-- Default properties for development -->
+                <spring.profiles.active>dev</spring.profiles.active>
+                <build.environment>development</build.environment>
+                <log.level>DEBUG</log.level>
+            </properties>
             <build>
+                <resources>
+                    <resource>
+                        <directory>src/main/resources</directory>
+                        <filtering>true</filtering>
+                        <excludes>
+                            <!-- Exclude dev-specific config files -->
+                            <exclude>logback-prod.xml</exclude>
+                        </excludes>
+                    </resource>
+                </resources>
                 <plugins>
                     <!-- Source Plugin -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-source-plugin</artifactId>
-                        <version>3.3.0</version>
+                        <version>3.3.1</version>
                         <executions>
                             <execution>
                                 <id>attach-sources</id>
@@ -205,7 +224,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-javadoc-plugin</artifactId>
-                        <version>3.6.3</version>
+                        <version>3.11.3</version>
                         <configuration>
                             <source>${java.version}</source>
                             <doclint>none</doclint>
@@ -226,9 +245,40 @@
 
         <!-- Release profile with additional quality checks -->
         <profile>
-            <id>release</id>
+            <id>production</id>
             <build>
+                <resources>
+                    <!-- Include a different set of resources for production -->
+                    <resource>
+                        <directory>src/main/resources</directory>
+                        <filtering>true</filtering>
+                        <excludes>
+                            <!-- Exclude dev-specific config files -->
+                            <exclude>logback-dev.xml</exclude>
+                        </excludes>
+                    </resource>
+                    <resource>
+                        <directory>src/main/resources-prod</directory>
+                        <includes>
+                            <!-- Include prod-specific config files -->
+                            <include>logback-prod.xml</include>
+                            <!--<include>application-prod.properties</include>-->
+                        </includes>
+                        <filtering>true</filtering>
+                    </resource>
+                </resources>
                 <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <version>3.14.0</version>
+                        <configuration>
+                            <debug>false</debug>
+                            <source>17</source>
+                            <target>17</target>
+                            <optimize>true</optimize> <!-- Enable optimization -->
+                        </configuration>
+                    </plugin>
                     <!-- Enforcer Plugin -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
@@ -255,7 +305,7 @@
                     </plugin>
 
                     <!-- Enhanced JaCoCo for release -->
-                    <plugin>
+<!--                    <plugin>
                         <groupId>org.jacoco</groupId>
                         <artifactId>jacoco-maven-plugin</artifactId>
                         <version>${jacoco-maven-plugin.version}</version>
@@ -281,7 +331,7 @@
                                 </configuration>
                             </execution>
                         </executions>
-                    </plugin>
+                    </plugin>-->
                 </plugins>
             </build>
         </profile>

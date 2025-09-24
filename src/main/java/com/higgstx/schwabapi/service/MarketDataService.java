@@ -331,6 +331,7 @@ public class MarketDataService implements AutoCloseable
                     operation);
             try
             {
+                //currentTokens are empty
                 tokenManager.forceTokenRefresh();
                 log.info("Token refresh completed for: {}", operation);
             }
