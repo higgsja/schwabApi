@@ -12,7 +12,7 @@ schwab:
       httpTimeoutMs: 3000
 
 # Logging for the API library
-logging:
-  level:
-    com.higgstx.schwabapi: DEBUG
-    okhttp3: WARN
+#logging:
+#  level:
+#    com.higgstx.schwabapi: DEBUG
+#    okhttp3: WARN
