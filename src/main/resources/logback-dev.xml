@@ -42,7 +42,7 @@
     <logger name="com.higgstx.schwabapi" level="DEBUG" additivity="false">
         <appender-ref ref="ASYNC_FILE"/>
         <appender-ref ref="DEBUG_FILE"/>
-        <appender-ref ref="CONSOLE"/>
+        <!--<appender-ref ref="CONSOLE"/>-->
     </logger>
     
     <!-- Logger for OkHttp (HTTP requests/responses) -->
@@ -57,7 +57,7 @@
     
     <!-- Root logger -->
     <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
+        <!--<appender-ref ref="CONSOLE"/>-->
         <appender-ref ref="ASYNC_FILE"/>
     </root>
     
