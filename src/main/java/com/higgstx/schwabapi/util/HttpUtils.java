@@ -37,7 +37,7 @@ public final class HttpUtils {
         if (enableLogging) {
             HttpLoggingInterceptor logging = new HttpLoggingInterceptor(
                     message -> log.debug(message));
-            logging.setLevel(HttpLoggingInterceptor.Level.BODY);
+            logging.setLevel(HttpLoggingInterceptor.Level.BASIC);
             builder.addInterceptor(logging);
         }
 
