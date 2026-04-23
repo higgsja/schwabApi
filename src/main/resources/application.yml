@@ -1,0 +1,23 @@
+# Schwab API Library Configuration
+schwab:
+  api:
+    appKey: "your-app-key"
+    appSecret: "your-app-secret"
+    tokenPropertiesFile: "schwab-api.json"
+    refreshTokenFile: "schwab-refresh-token.txt"
+    urls:
+      auth: "https://api.schwabapi.com/v1/oauth/authorize"
+      token: "https://api.schwabapi.com/v1/oauth/token"
+      traderBase: "https://api.schwabapi.com/trader/v1"-refresh-token
+      marketData: "https://api.schwabapi.com/marketdata/v1"
+    
+    defaults:
+      redirectUri: "https://127.0.0.1"
+      httpTimeoutMs: 3000
+      scope: "readonly"
+
+# Logging for the API library
+#logging:
+#  level:
+#    com.higgstx.schwabapi: DEBUG
+#    okhttp3: WARN
