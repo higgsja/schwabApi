@@ -293,6 +293,106 @@ public class SchwabOAuthClient implements AutoCloseable {
     }
 
     /**
+     * Get price history for a date range.
+     *
+     * Designed for option symbols (OSI format) where periodType/period are not appropriate.
+     * The symbol is URL-encoded to handle embedded spaces in OSI symbols
+     * (e.g. "CAT   270617C00900000").
+     *
+     * @param symbol          ticker or OSI option symbol
+     * @param startEpochMs    range start, inclusive, as Unix epoch milliseconds
+     * @param endEpochMs      range end, exclusive, as Unix epoch milliseconds
+     * @param frequencyType   "daily", "weekly", or "monthly"
+     * @param frequency       frequency count (typically 1)
+     * @param accessToken     valid Bearer access token
+     */
+    public ApiResponse getPriceHistoryByDateRange(String symbol, long startEpochMs, long endEpochMs,
+                                                  String frequencyType, int frequency,
+                                                  String accessToken) throws SchwabApiException {
+        UtilityClass.validateParameter(symbol, "Symbol");
+        UtilityClass.validateParameter(accessToken, "Access token");
+
+        // Use HttpUrl.Builder so OkHttp handles parameter encoding natively.
+        // addQueryParameter() percent-encodes spaces as %20 (not +), which is correct
+        // for URL query strings. This avoids any risk of double-encoding that can occur
+        // when pre-encoding a string and then passing it through OkHttp's URL parser.
+        HttpUrl base = HttpUrl.parse(marketDataUrl + "/pricehistory");
+        if (base == null) {
+            throw SchwabApiException.configurationError(
+                    "Invalid market data URL: " + marketDataUrl);
+        }
+
+        // Schwab validates the periodType/frequencyType combination even when
+        // startDate/endDate are supplied.  Derive a compatible periodType:
+        //   minute  → day
+        //   daily   → month
+        //   weekly  → year
+        //   monthly → year
+        String periodType;
+        switch (frequencyType.toLowerCase()) {
+            case "minute" -> periodType = "day";
+            case "weekly", "monthly" -> periodType = "year";
+            default -> periodType = "month"; // daily (and unknown) → month
+        }
+
+        HttpUrl url = base.newBuilder()
+                .addQueryParameter("symbol", symbol)
+                .addQueryParameter("periodType", periodType)
+                .addQueryParameter("frequencyType", frequencyType)
+                .addQueryParameter("frequency", String.valueOf(frequency))
+                .addQueryParameter("startDate", String.valueOf(startEpochMs))
+                .addQueryParameter("endDate", String.valueOf(endEpochMs))
+                .addQueryParameter("needExtendedHoursData", "false")
+                .build();
+
+        log.info("Option price history request URL: {}", url);
+
+        try {
+            return callApiWithAuth(url.toString(), "GET", null, accessToken);
+        } catch (IOException e) {
+            throw SchwabApiException.networkError(
+                    "get price history by date range for symbol: " + symbol, e);
+        }
+    }
+
+    /**
+     * Get the option chain for an equity.
+     *
+     * @param symbol        underlying equity symbol, e.g. "CAT"
+     * @param contractType  "CALL", "PUT", or "ALL"
+     * @param accessToken   valid Bearer access token
+     */
+    public ApiResponse getOptionChain(String symbol, String contractType,
+                                      String accessToken) throws SchwabApiException {
+        UtilityClass.validateParameter(symbol, "Symbol");
+        UtilityClass.validateParameter(accessToken, "Access token");
+
+        String type = StringUtils.hasContent(contractType) ? contractType.toUpperCase() : "ALL";
+
+        HttpUrl base = HttpUrl.parse(marketDataUrl + "/chains");
+        if (base == null) {
+            throw SchwabApiException.configurationError(
+                    "Invalid market data URL: " + marketDataUrl);
+        }
+
+        HttpUrl url = base.newBuilder()
+                .addQueryParameter("symbol", symbol)
+                .addQueryParameter("contractType", type)
+                .addQueryParameter("strategy", "SINGLE")
+                .addQueryParameter("includeUnderlyingQuote", "false")
+                .build();
+
+        log.debug("Option chain request URL: {}", url);
+
+        try {
+            return callApiWithAuth(url.toString(), "GET", null, accessToken);
+        } catch (IOException e) {
+            throw SchwabApiException.networkError(
+                    "get option chain for symbol: " + symbol, e);
+        }
+    }
+
+    /**
      * Get market hours
      */
     public ApiResponse getMarketHours(String marketType, String accessToken) throws SchwabApiException {

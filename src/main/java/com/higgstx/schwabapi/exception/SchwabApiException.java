@@ -42,7 +42,14 @@ public class SchwabApiException extends Exception {
         String errorCode = details.containsKey("error") ? details.get("error").toString() : "HTTP_" + response.getStatusCode();
         String errorMessage = SimpleJsonParser.extractErrorMessage(response.getBody());
         String message = UtilityClass.buildErrorMessage(operation, errorMessage);
-        
+
+        // Always preserve raw body — Schwab error formats vary and the body is
+        // the primary diagnostic tool when parsing fails or fields don't match.
+        if (response.getBody() != null && !response.getBody().isEmpty()) {
+            details = new HashMap<>(details);
+            details.put("raw_response", response.getBody());
+        }
+
         return new SchwabApiException(response.getStatusCode(), message, errorCode, details, null);
     }
     
